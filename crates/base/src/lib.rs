@@ -9,14 +9,14 @@ use winit::{
 
 
 
-type InitFn = fn(state: &mut Box<dyn StateDynObj>) -> ();
+type InitFn = fn(state: &mut BaseState) -> ();
 type TickFn = fn(state: &mut BaseState) -> ();
 type RenderFn = fn(state: &mut BaseState) -> Result<(), wgpu::SurfaceError>;
 
 pub trait StateDynObj: AsAny {
 }
 
-pub fn cast_mut<OT: 'static>(state: &mut Box<dyn StateDynObj>) ->Option<&mut OT> {
+pub fn downcast_mut<OT: 'static>(state: &mut Box<dyn StateDynObj>) ->Option<&mut OT> {
     state.as_mut().downcast_mut::<OT>()
 }
 
@@ -105,9 +105,9 @@ impl BaseState {
         };
         surface.configure(&device, &config);
 
-        init_fn(&mut in_state);
+       
 
-        Self {
+       let mut base_state= Self {
             window,
             surface,
             device,
@@ -117,7 +117,9 @@ impl BaseState {
             render_fn,
             tick_fn,
             extra_state: in_state,
-        }
+        };
+        init_fn(&mut base_state);
+        base_state
     }
 
     pub fn window(&self) -> &Window {

@@ -1,5 +1,6 @@
-use gf_base::{cast_mut, run, BaseState, StateDynObj};
+use gf_base::{downcast_mut, run, BaseState, StateDynObj};
 
+#[derive(Default)]
 struct State {
     i: u32,
 }
@@ -46,13 +47,13 @@ fn render(state: &mut BaseState) -> Result<(), wgpu::SurfaceError> {
 
 fn main() {
     pollster::block_on(run(
-        Box::new(State { i: 3222 }),
+        Box::new(State::default()),
         |state| {
-            let mut state = cast_mut::<State>(state).unwrap();
+            let mut state = downcast_mut::<State>(&mut state.extra_state).unwrap();
             state.i = 3213312;
         },
         |state| {
-            // let state = cast_mut::<State>(&mut state.extra_state).unwrap();
+            let state = downcast_mut::<State>(&mut state.extra_state).unwrap();
             // println!("state: {}", state.i)
         },
         render,
