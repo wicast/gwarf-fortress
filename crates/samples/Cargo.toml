@@ -1,0 +1,13 @@
+[package]
+name = "gf_samples"
+version = "0.1.0"
+edition = "2021"
+resolver = "2"
+
+[dependencies]
+gf_base = { path = "../base"}
+winit = "0.28.6"
+env_logger = "0.10"
+log = "0.4"
+wgpu = "0.16.1"
+pollster = "0.3.0"
