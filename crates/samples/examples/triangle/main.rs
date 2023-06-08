@@ -1,4 +1,6 @@
 use gf_base::{downcast_mut, run, BaseState, StateDynObj};
+use gf_base::wgpu;
+use gf_base::winit;
 
 #[derive(Default)]
 struct State {

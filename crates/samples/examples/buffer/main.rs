@@ -1,4 +1,6 @@
 use gf_base::{downcast_mut, run, BaseState, StateDynObj};
+use gf_base::wgpu;
+
 use wgpu::util::DeviceExt;
 
 #[derive(Default)]
