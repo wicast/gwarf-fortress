@@ -1,4 +1,5 @@
 [workspace]
+resolver = "2"
 members = ["crates/*"]
 
 [package]
@@ -8,8 +9,8 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[dependencies]
-# winit = "0.28.6"
-# env_logger = "0.10"
-# log = "0.4"
-# wgpu = "0.16.1"
+
+# [patch.crates-io]
+# naga ={ path = "/path/to/naga"}
+# wgpu ={ path = "path/to/wgpu/wgpu" }
+# wgpu-hal ={ path = "path/to/wgpu/wgpu-hal" }
