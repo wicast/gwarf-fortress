@@ -1,4 +1,4 @@
-use gf_base::{downcast_mut, run, BaseState, StateDynObj};
+use gf_base::{downcast_mut, run, BaseState, StateDynObj, default_configs};
 use gf_base::wgpu;
 
 
@@ -102,6 +102,7 @@ fn render(state: &mut BaseState) -> Result<(), wgpu::SurfaceError> {
 fn main() {
     pollster::block_on(run(
         Box::new(State::default()),
+        default_configs,
         init,
         |state| {
             // let state = cast_mut::<State>(&mut state.extra_state).unwrap();

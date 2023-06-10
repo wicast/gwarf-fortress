@@ -11,9 +11,14 @@ pub use wgpu;
 pub use winit;
 pub use env_logger;
 
+type GetConfigFn = fn() -> (wgpu::Backends, wgpu::Features);
 type InitFn = fn(state: &mut BaseState) -> ();
 type TickFn = fn(state: &mut BaseState) -> ();
 type RenderFn = fn(state: &mut BaseState) -> Result<(), wgpu::SurfaceError>;
+
+pub fn default_configs() -> (wgpu::Backends, wgpu::Features) {
+    (wgpu::Backends::all(), wgpu::Features::empty())
+}
 
 pub trait StateDynObj: AsAny {
 }
@@ -39,17 +44,20 @@ impl BaseState {
     // Creating some of the wgpu types requires async code
     async fn new(
         window: Window,
-        mut in_state: Box<dyn StateDynObj>,
+        in_state: Box<dyn StateDynObj>,
+        config_fn: GetConfigFn,
         init_fn: InitFn,
         tick_fn: TickFn,
         render_fn: RenderFn,
     ) -> Self {
+        let (backends, features) =  config_fn();
+
         let size = window.inner_size();
 
         // The instance is a handle to our GPU
         // Backends::all => Vulkan + Metal + DX12 + Browser WebGPU
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
+            backends,
             dx12_shader_compiler: Default::default(),
         });
 
@@ -71,7 +79,7 @@ impl BaseState {
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
-                    features: wgpu::Features::empty(),
+                    features,
                     // WebGL doesn't support all of wgpu's features, so if
                     // we're building for the web we'll have to disable some.
                     limits: if cfg!(target_arch = "wasm32") {
@@ -152,6 +160,7 @@ impl BaseState {
 
 pub async fn run(
     in_state: Box<dyn StateDynObj>,
+    config_fn: GetConfigFn,
     init_fn: InitFn,
     tick_fn: TickFn,
     render_fn: RenderFn,
@@ -160,7 +169,7 @@ pub async fn run(
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new().build(&event_loop).unwrap();
 
-    let mut state = BaseState::new(window, in_state, init_fn, tick_fn, render_fn).await;
+    let mut state = BaseState::new(window, in_state, config_fn, init_fn, tick_fn, render_fn).await;
     event_loop.run(move |event, _, control_flow| {
         match event {
             Event::WindowEvent {
