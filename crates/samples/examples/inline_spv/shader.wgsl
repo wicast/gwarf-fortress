@@ -22,5 +22,12 @@ fn vs_main(
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    return vec4<f32>(in.color, 1.0);
+    var color = in.color;
+    for (var i = 0; i < 10; i += 1) {
+        var ii = f32(i);
+        color.x += ii*0.001;
+        color.y += ii*0.002;
+    }
+
+    return vec4<f32>(color, 1.0);
 }
