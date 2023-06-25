@@ -1,40 +1,47 @@
 ; SPIR-V
 ; Version: 1.0
 ; Generator: Khronos; 28
-; Bound: 51
+; Bound: 95
 ; Schema: 0
                OpCapability Shader
           %1 = OpExtInstImport "GLSL.std.450"
                OpMemoryModel Logical GLSL450
                OpEntryPoint Vertex %vs_main "vs_main" %position %color %clip_position %color_0
-               OpEntryPoint Fragment %fs_main "fs_main" %clip_position_0 %color_1 %46
+               OpEntryPoint Fragment %fs_main "fs_main" %clip_position_0 %color_2 %56
                OpExecutionMode %fs_main OriginUpperLeft
-  %file_name = OpString "shader.wgsl"
-               OpSource GLSL 450 %file_name "struct VertexInput {
-    @location(0) position: vec3<f32>,
-    @location(1) color: vec3<f32>,
-};
-
-struct VertexOutput {
-    @builtin(position) clip_position: vec4<f32>,
-    @location(0) color: vec3<f32>,
-};
-
-@vertex
-fn vs_main(
-    model: VertexInput,
-) -> VertexOutput {
-    var out: VertexOutput;
-    out.color = model.color;
-    out.clip_position = vec4<f32>(model.position, 1.0);
-    return out;
-}
-
-// Fragment shader
-
-@fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    return vec4<f32>(in.color, 1.0);
+          %3 = OpString "shader.wgsl"
+               OpSource GLSL 450 %3 "struct VertexInput {
+    @location(0) position: vec3<f32>,
+    @location(1) color: vec3<f32>,
+};
+
+struct VertexOutput {
+    @builtin(position) clip_position: vec4<f32>,
+    @location(0) color: vec3<f32>,
+};
+
+@vertex
+fn vs_main(
+    model: VertexInput,
+) -> VertexOutput {
+    var out: VertexOutput;
+    out.color = model.color;
+    out.clip_position = vec4<f32>(model.position, 1.0);
+    return out;
+}
+
+// Fragment shader
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    var color = in.color;
+    for (var i = 0; i < 10; i += 1) {
+        var ii = f32(i);
+        color.x += ii*0.001;
+        color.y += ii*0.002;
+    }
+
+    return vec4<f32>(color, 1.0);
 }"
                OpMemberName %VertexInput 0 "position"
                OpMemberName %VertexInput 1 "color"
@@ -48,8 +55,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                OpName %clip_position "clip_position"
                OpName %color_0 "color"
                OpName %vs_main "vs_main"
-               OpName %clip_position_0 "clip_position"
                OpName %color_1 "color"
+               OpName %i "i"
+               OpName %ii "ii"
+               OpName %clip_position_0 "clip_position"
+               OpName %color_2 "color"
                OpName %fs_main "fs_main"
                OpMemberDecorate %VertexInput 0 Offset 0
                OpMemberDecorate %VertexInput 1 Offset 16
@@ -60,16 +70,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                OpDecorate %clip_position BuiltIn Position
                OpDecorate %color_0 Location 0
                OpDecorate %clip_position_0 BuiltIn FragCoord
-               OpDecorate %color_1 Location 0
-               OpDecorate %46 Location 0
+               OpDecorate %color_2 Location 0
+               OpDecorate %56 Location 0
        %void = OpTypeVoid
       %float = OpTypeFloat 32
     %v3float = OpTypeVector %float 3
 %VertexInput = OpTypeStruct %v3float %v3float
     %v4float = OpTypeVector %float 4
 %VertexOutput = OpTypeStruct %v4float %v3float
+        %int = OpTypeInt 32 1
 %_ptr_Function_VertexOutput = OpTypePointer Function %VertexOutput
-         %10 = OpConstantNull %VertexOutput
+         %12 = OpConstantNull %VertexOutput
 %_ptr_Input_v3float = OpTypePointer Input %v3float
    %position = OpVariable %_ptr_Input_v3float Input
       %color = OpVariable %_ptr_Input_v3float Input
@@ -77,48 +88,135 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 %clip_position = OpVariable %_ptr_Output_v4float Output
 %_ptr_Output_v3float = OpTypePointer Output %v3float
     %color_0 = OpVariable %_ptr_Output_v3float Output
-         %23 = OpTypeFunction %void
+         %25 = OpTypeFunction %void
     %float_1 = OpConstant %float 1
 %_ptr_Function_v3float = OpTypePointer Function %v3float
        %uint = OpTypeInt 32 0
      %uint_1 = OpConstant %uint 1
 %_ptr_Function_v4float = OpTypePointer Function %v4float
      %uint_0 = OpConstant %uint 0
+         %42 = OpConstantNull %v3float
+%_ptr_Function_int = OpTypePointer Function %int
+         %45 = OpConstantNull %int
+%_ptr_Function_float = OpTypePointer Function %float
+         %48 = OpConstantNull %float
 %_ptr_Input_v4float = OpTypePointer Input %v4float
 %clip_position_0 = OpVariable %_ptr_Input_v4float Input
-    %color_1 = OpVariable %_ptr_Input_v3float Input
-         %46 = OpVariable %_ptr_Output_v4float Output
-    %vs_main = OpFunction %void None %23
-         %11 = OpLabel
-        %out = OpVariable %_ptr_Function_VertexOutput Function %10
-         %15 = OpLoad %v3float %position
-         %17 = OpLoad %v3float %color
-         %12 = OpCompositeConstruct %VertexInput %15 %17
-               OpBranch %25
-         %25 = OpLabel
-         %27 = OpCompositeExtract %v3float %12 1
-         %30 = OpAccessChain %_ptr_Function_v3float %out %uint_1
-               OpStore %30 %27
-         %32 = OpCompositeExtract %v3float %12 0
-         %33 = OpCompositeConstruct %v4float %32 %float_1
-         %35 = OpAccessChain %_ptr_Function_v4float %out %uint_0
-               OpStore %35 %33
-         %36 = OpLoad %VertexOutput %out
-         %37 = OpCompositeExtract %v4float %36 0
-               OpStore %clip_position %37
-         %38 = OpCompositeExtract %v3float %36 1
-               OpStore %color_0 %38
+    %color_2 = OpVariable %_ptr_Input_v3float Input
+         %56 = OpVariable %_ptr_Output_v4float Output
+      %int_0 = OpConstant %int 0
+     %int_10 = OpConstant %int 10
+%float_0_00100000005 = OpConstant %float 0.00100000005
+%float_0_00200000009 = OpConstant %float 0.00200000009
+      %int_1 = OpConstant %int 1
+       %bool = OpTypeBool
+%_ptr_Function_float_0 = OpTypePointer Function %float
+    %vs_main = OpFunction %void None %25
+         %13 = OpLabel
+        %out = OpVariable %_ptr_Function_VertexOutput Function %12
+         %17 = OpLoad %v3float %position
+         %19 = OpLoad %v3float %color
+         %14 = OpCompositeConstruct %VertexInput %17 %19
+               OpBranch %27
+         %27 = OpLabel
+               OpLine %3 16 5
+         %29 = OpCompositeExtract %v3float %14 1
+               OpLine %3 16 5
+         %32 = OpAccessChain %_ptr_Function_v3float %out %uint_1
+               OpStore %32 %29
+               OpLine %3 17 5
+         %34 = OpCompositeExtract %v3float %14 0
+               OpLine %3 17 25
+         %35 = OpCompositeConstruct %v4float %34 %float_1
+               OpLine %3 17 5
+         %37 = OpAccessChain %_ptr_Function_v4float %out %uint_0
+               OpStore %37 %35
+               OpLine %3 1 1
+         %38 = OpLoad %VertexOutput %out
+               OpLine %3 18 5
+         %39 = OpCompositeExtract %v4float %38 0
+               OpStore %clip_position %39
+         %40 = OpCompositeExtract %v3float %38 1
+               OpStore %color_0 %40
                OpReturn
                OpFunctionEnd
-    %fs_main = OpFunction %void None %23
-         %39 = OpLabel
-         %43 = OpLoad %v4float %clip_position_0
-         %45 = OpLoad %v3float %color_1
-         %40 = OpCompositeConstruct %VertexOutput %43 %45
-               OpBranch %48
-         %48 = OpLabel
-         %49 = OpCompositeExtract %v3float %40 1
-         %50 = OpCompositeConstruct %v4float %49 %float_1
-               OpStore %46 %50
+    %fs_main = OpFunction %void None %25
+         %49 = OpLabel
+    %color_1 = OpVariable %_ptr_Function_v3float Function %42
+          %i = OpVariable %_ptr_Function_int Function %45
+         %ii = OpVariable %_ptr_Function_float Function %48
+         %53 = OpLoad %v4float %clip_position_0
+         %55 = OpLoad %v3float %color_2
+         %50 = OpCompositeConstruct %VertexOutput %53 %55
+               OpBranch %63
+         %63 = OpLabel
+               OpLine %3 25 17
+         %64 = OpCompositeExtract %v3float %50 1
+               OpLine %3 25 5
+               OpStore %color_1 %64
+               OpLine %3 26 10
+               OpStore %i %int_0
+               OpLine %3 26 5
+               OpBranch %65
+         %65 = OpLabel
+               OpLoopMerge %66 %68 None
+               OpBranch %67
+         %67 = OpLabel
+               OpLine %3 1 1
+         %69 = OpLoad %int %i
+               OpLine %3 26 21
+         %71 = OpSLessThan %bool %69 %int_10
+               OpLine %3 26 20
+               OpSelectionMerge %72 None
+               OpBranchConditional %71 %72 %73
+         %73 = OpLabel
+               OpLine %3 26 20
+               OpBranch %66
+         %72 = OpLabel
+               OpLine %3 26 37
+               OpBranch %74
+         %74 = OpLabel
+               OpLine %3 27 18
+         %76 = OpLoad %int %i
+         %77 = OpConvertSToF %float %76
+               OpLine %3 27 9
+               OpStore %ii %77
+               OpLine %3 28 9
+         %79 = OpLoad %float %ii
+               OpLine %3 28 9
+         %80 = OpFMul %float %79 %float_0_00100000005
+         %81 = OpAccessChain %_ptr_Function_float_0 %color_1 %uint_0
+         %82 = OpLoad %float %81
+         %83 = OpFAdd %float %82 %80
+               OpLine %3 28 9
+         %84 = OpAccessChain %_ptr_Function_float_0 %color_1 %uint_0
+               OpStore %84 %83
+               OpLine %3 29 9
+         %85 = OpLoad %float %ii
+               OpLine %3 29 9
+         %86 = OpFMul %float %85 %float_0_00200000009
+         %87 = OpAccessChain %_ptr_Function_float_0 %color_1 %uint_1
+         %88 = OpLoad %float %87
+         %89 = OpFAdd %float %88 %86
+               OpLine %3 29 9
+         %90 = OpAccessChain %_ptr_Function_float_0 %color_1 %uint_1
+               OpStore %90 %89
+               OpBranch %75
+         %75 = OpLabel
+               OpBranch %68
+         %68 = OpLabel
+               OpLine %3 26 29
+         %91 = OpLoad %int %i
+         %92 = OpIAdd %int %91 %int_1
+               OpLine %3 26 29
+               OpStore %i %92
+               OpBranch %65
+         %66 = OpLabel
+               OpLine %3 1 1
+         %93 = OpLoad %v3float %color_1
+               OpLine %3 32 12
+         %94 = OpCompositeConstruct %v4float %93 %float_1
+               OpLine %3 32 5
+               OpStore %56 %94
                OpReturn
                OpFunctionEnd
