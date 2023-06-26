@@ -184,7 +184,7 @@ fn render(state: &mut BaseState) -> Result<(), wgpu::SurfaceError> {
 
 fn main() {
     pollster::block_on(run(
-        Box::new(State::default()),
+        Box::<State>::default(),
         || {
             (
                 wgpu::Backends::all(),
@@ -192,7 +192,7 @@ fn main() {
             )
         },
         init,
-        |state| {
+        |_state| {
             // let state = cast_mut::<State>(&mut state.extra_state).unwrap();
             // println!("state: {}", state.i)
         },
