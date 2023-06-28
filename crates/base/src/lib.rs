@@ -1,29 +1,33 @@
 pub mod camera;
 
+use std::time::Duration;
+
 use as_any::{AsAny, Downcast};
+use camera::{Camera, CameraController, CameraUniform};
+use wgpu::util::DeviceExt;
 use winit::{
-    event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent},
+    event::{ElementState, Event, KeyboardInput, MouseButton, VirtualKeyCode, WindowEvent, DeviceEvent},
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowBuilder},
 };
 
+pub use bytemuck;
+pub use env_logger;
 pub use wgpu;
 pub use winit;
-pub use env_logger;
 
 type GetConfigFn = fn() -> (wgpu::Backends, wgpu::Features);
 type InitFn = fn(state: &mut BaseState) -> ();
-type TickFn = fn(state: &mut BaseState) -> ();
-type RenderFn = fn(state: &mut BaseState) -> Result<(), wgpu::SurfaceError>;
+type TickFn = fn(state: &mut BaseState, dt: Duration) -> ();
+type RenderFn = fn(state: &mut BaseState, dt: Duration) -> Result<(), wgpu::SurfaceError>;
 
 pub fn default_configs() -> (wgpu::Backends, wgpu::Features) {
     (wgpu::Backends::all(), wgpu::Features::empty())
 }
 
-pub trait StateDynObj: AsAny {
-}
+pub trait StateDynObj: AsAny {}
 
-pub fn downcast_mut<OT: 'static>(state: &mut Box<dyn StateDynObj>) ->Option<&mut OT> {
+pub fn downcast_mut<OT: 'static>(state: &mut Box<dyn StateDynObj>) -> Option<&mut OT> {
     state.as_mut().downcast_mut::<OT>()
 }
 
@@ -34,6 +38,15 @@ pub struct BaseState {
     pub config: wgpu::SurfaceConfiguration,
     pub size: winit::dpi::PhysicalSize<u32>,
     pub window: Window,
+
+    pub camera: Camera,
+    pub camera_controller: CameraController,
+    pub camera_uniform: CameraUniform,
+    pub camera_buffer: wgpu::Buffer,
+    pub camera_bind_group_layout: wgpu::BindGroupLayout,
+    pub camera_bind_group: wgpu::BindGroup,
+
+    pub mouse_pressed: bool,
 
     pub extra_state: Box<dyn StateDynObj>,
     pub render_fn: RenderFn,
@@ -50,7 +63,7 @@ impl BaseState {
         tick_fn: TickFn,
         render_fn: RenderFn,
     ) -> Self {
-        let (backends, features) =  config_fn();
+        let (backends, features) = config_fn();
 
         let size = window.inner_size();
 
@@ -115,9 +128,48 @@ impl BaseState {
         };
         surface.configure(&device, &config);
 
-       
+        let projection =
+            camera::Projection::new(config.width, config.height, cgmath::Deg(45.0), 0.1, 100.0);
+        let camera = Camera::new(
+            (0.0, 5.0, 10.0),
+            cgmath::Deg(-90.0),
+            cgmath::Deg(-20.0),
+            projection,
+        );
+        let mut camera_uniform = CameraUniform::new();
+        camera_uniform.update_view_proj(&camera);
+        let camera_controller = camera::CameraController::new(4.0, 0.4);
 
-       let mut base_state= Self {
+        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Camera Buffer"),
+            contents: bytemuck::cast_slice(&[camera_uniform]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        let camera_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: Some("camera_bind_group_layout"),
+            });
+        let camera_bind_group: wgpu::BindGroup =
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &camera_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: camera_buffer.as_entire_binding(),
+                }],
+                label: Some("camera_bind_group"),
+            });
+
+        let mut base_state = Self {
             window,
             surface,
             device,
@@ -127,6 +179,13 @@ impl BaseState {
             render_fn,
             tick_fn,
             extra_state: in_state,
+            camera,
+            camera_controller,
+            camera_uniform,
+            mouse_pressed: false,
+            camera_bind_group,
+            camera_buffer,
+            camera_bind_group_layout,
         };
         init_fn(&mut base_state);
         base_state
@@ -142,19 +201,50 @@ impl BaseState {
             self.config.width = new_size.width;
             self.config.height = new_size.height;
             self.surface.configure(&self.device, &self.config);
+            self.camera.proj.resize(new_size.width, new_size.height);
         }
     }
 
     fn input(&mut self, event: &WindowEvent) -> bool {
-        false
+        match event {
+            WindowEvent::KeyboardInput {
+                input:
+                    KeyboardInput {
+                        virtual_keycode: Some(key),
+                        state,
+                        ..
+                    },
+                ..
+            } => self.camera_controller.process_keyboard(*key, *state),
+            WindowEvent::MouseWheel { delta, .. } => {
+                self.camera_controller.process_scroll(delta);
+                true
+            }
+            WindowEvent::MouseInput {
+                button: MouseButton::Left,
+                state,
+                ..
+            } => {
+                self.mouse_pressed = *state == ElementState::Pressed;
+                true
+            }
+            _ => false,
+        }
     }
 
-    fn tick(&mut self) {
-        (self.tick_fn)(self)
+    fn tick(&mut self, dt: Duration) {
+        self.camera_controller.update_camera(&mut self.camera, dt);
+        self.camera_uniform.update_view_proj(&self.camera);
+        self.queue.write_buffer(
+            &self.camera_buffer,
+            0,
+            bytemuck::cast_slice(&[self.camera_uniform]),
+        );
+        (self.tick_fn)(self, dt);
     }
 
-    fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        (self.render_fn)(self)
+    fn render(&mut self, dt: Duration) -> Result<(), wgpu::SurfaceError> {
+        (self.render_fn)(self, dt)
     }
 }
 
@@ -168,10 +258,17 @@ pub async fn run(
     env_logger::init();
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new().build(&event_loop).unwrap();
+    let mut last_render_time = std::time::Instant::now();
 
     let mut state = BaseState::new(window, in_state, config_fn, init_fn, tick_fn, render_fn).await;
     event_loop.run(move |event, _, control_flow| {
         match event {
+            Event::DeviceEvent {
+                event: DeviceEvent::MouseMotion{ delta, },
+                .. // We're not using device_id currently
+            } => if state.mouse_pressed {
+                state.camera_controller.process_mouse(delta.0, delta.1)
+            }
             Event::WindowEvent {
                 ref event,
                 window_id,
@@ -199,8 +296,11 @@ pub async fn run(
                 }
             }
             Event::RedrawRequested(window_id) if window_id == state.window().id() => {
-                state.tick();
-                match state.render() {
+                let now = std::time::Instant::now();
+                let dt = now - last_render_time;
+                last_render_time = now;
+                state.tick(dt);
+                match state.render(dt) {
                     Ok(_) => {}
                     // Reconfigure the surface if lost
                     Err(wgpu::SurfaceError::Lost) => state.resize(state.size),

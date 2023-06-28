@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use gf_base::{downcast_mut, run, BaseState, StateDynObj, default_configs};
 use gf_base::wgpu;
 
@@ -56,7 +58,7 @@ fn init(state: &mut BaseState) {
     state.render_pipeline = Some(render_pipeline);
 }
 
-fn render(state: &mut BaseState) -> Result<(), wgpu::SurfaceError> {
+fn render(state: &mut BaseState, dt: Duration) -> Result<(), wgpu::SurfaceError> {
     let output = state.surface.get_current_texture()?;
     let view = output
         .texture
@@ -104,7 +106,7 @@ fn main() {
         Box::new(State::default()),
         default_configs,
         init,
-        |state| {
+        |state, dt| {
             // let state = cast_mut::<State>(&mut state.extra_state).unwrap();
             // println!("state: {}", state.i)
         },

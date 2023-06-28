@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use gf_base::{downcast_mut, run, BaseState, StateDynObj, default_configs};
 use gf_base::wgpu;
 
@@ -9,7 +11,7 @@ struct State {
 
 impl StateDynObj for State {}
 
-fn render(state: &mut BaseState) -> Result<(), wgpu::SurfaceError> {
+fn render(state: &mut BaseState, dt: Duration) -> Result<(), wgpu::SurfaceError> {
     let output = state.surface.get_current_texture()?;
     let view = output
         .texture
@@ -55,7 +57,7 @@ fn main() {
             let mut state = downcast_mut::<State>(&mut state.extra_state).unwrap();
             state.i = 3213312;
         },
-        |state| {
+        |state, dt| {
             let state = downcast_mut::<State>(&mut state.extra_state).unwrap();
             // println!("state: {}", state.i)
         },

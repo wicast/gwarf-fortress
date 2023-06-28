@@ -4,8 +4,6 @@ version = "0.1.0"
 edition = "2021"
 resolver = "2"
 
-
-
 [dependencies]
 winit = "0.28.6"
 env_logger = "0.10"
@@ -13,3 +11,4 @@ log = "0.4"
 wgpu = "0.16.1"
 as-any = "0.3.0"
 cgmath = "0.18"
+bytemuck = {version = "1.13.1",  features = [ "derive" ]}

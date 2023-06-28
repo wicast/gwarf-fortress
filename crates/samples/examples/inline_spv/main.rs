@@ -1,4 +1,6 @@
-use gf_base::{default_configs, wgpu};
+use std::time::Duration;
+
+use gf_base::wgpu;
 use gf_base::{downcast_mut, run, BaseState, StateDynObj};
 
 use wgpu::util::DeviceExt;
@@ -134,7 +136,7 @@ fn init(state: &mut BaseState) {
     state.index = Some(index_buffer);
 }
 
-fn render(state: &mut BaseState) -> Result<(), wgpu::SurfaceError> {
+fn render(state: &mut BaseState, dt: Duration) -> Result<(), wgpu::SurfaceError> {
     let output = state.surface.get_current_texture()?;
     let view = output
         .texture
@@ -192,7 +194,7 @@ fn main() {
             )
         },
         init,
-        |_state| {
+        |_state, dt| {
             // let state = cast_mut::<State>(&mut state.extra_state).unwrap();
             // println!("state: {}", state.i)
         },
