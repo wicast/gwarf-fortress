@@ -6,7 +6,9 @@ use as_any::{AsAny, Downcast};
 use camera::{Camera, CameraController, CameraUniform};
 use wgpu::util::DeviceExt;
 use winit::{
-    event::{ElementState, Event, KeyboardInput, MouseButton, VirtualKeyCode, WindowEvent, DeviceEvent},
+    event::{
+        DeviceEvent, ElementState, Event, KeyboardInput, MouseButton, VirtualKeyCode, WindowEvent,
+    },
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowBuilder},
 };
@@ -267,6 +269,7 @@ pub async fn run(
                 event: DeviceEvent::MouseMotion{ delta, },
                 .. // We're not using device_id currently
             } => if state.mouse_pressed {
+                //TODO deal all events in one place
                 state.camera_controller.process_mouse(delta.0, delta.1)
             }
             Event::WindowEvent {
