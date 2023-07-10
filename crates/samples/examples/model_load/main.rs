@@ -1,6 +1,7 @@
 use std::time::Duration;
 
-use gf_base::{downcast_mut, run, BaseState, StateDynObj, default_configs};
+use gf_base::asset::gltf::load_gltf;
+use gf_base::{default_configs, downcast_mut, run, BaseState, StateDynObj};
 use gf_base::wgpu;
 
 use wgpu::util::DeviceExt;
@@ -10,6 +11,7 @@ struct State {
     render_pipeline: Option<wgpu::RenderPipeline>,
     vertices: Option<wgpu::Buffer>,
     index: Option<wgpu::Buffer>,
+    index_count: usize,
 }
 
 #[repr(C)]
@@ -34,18 +36,6 @@ impl Vertex {
     }
 }
 
-const VERTICES: &[Vertex] = &[
-    Vertex { position: [-0.0868241, 0.49240386, 0.0], color: [0.5, 0.0, 0.5] }, // A
-    Vertex { position: [-0.49513406, 0.06958647, 0.0], color: [0.5, 0.0, 0.5] }, // B
-    Vertex { position: [-0.21918549, -0.44939706, 0.0], color: [0.5, 0.0, 0.5] }, // C
-    Vertex { position: [0.35966998, -0.3473291, 0.0], color: [0.5, 0.0, 0.5] }, // D
-    Vertex { position: [0.44147372, 0.2347359, 0.0], color: [0.5, 0.0, 0.5] }, // E
-];
-const INDICES: &[u16] = &[
-    0, 1, 4,
-    1, 2, 4,
-    2, 3, 4,
-];
 
 impl StateDynObj for State {}
 
@@ -53,9 +43,7 @@ fn init(base_state: &mut BaseState) {
     let device = &base_state.device;
     let mut state = downcast_mut::<State>(&mut base_state.extra_state).unwrap();
 
-    
-    let shader = device
-        .create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
+    let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
 
     let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Render Pipeline Layout"),
@@ -99,19 +87,35 @@ fn init(base_state: &mut BaseState) {
         multiview: None,
     });
 
+    // let path = "/Users/wicast/Third-part/glTF-Sample-Models/2.0/FlightHelmet/glTF-KTX-BasisU/FlightHelmet.gltf";
+    let path = format!("{}/assets/simple_two.glb", std::env::current_dir().unwrap().display());
+    let path = format!("{}/assets/simple_plane.glb", std::env::current_dir().unwrap().display());
+    let mesh = load_gltf(path).unwrap();
+
+    let mut vertices = vec![];
+    for m in mesh.positions {
+        vertices.push(Vertex {
+            position: m,
+            color: [0.5, 0.0, 0.5],
+        })
+    }
+    let mut indices = vec![];
+    for i in mesh.indices {
+        indices.push(i);
+    }
+    state.index_count = indices.len();
+
     state.render_pipeline = Some(render_pipeline);
     let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("Vertex Buffer"),
-        contents: bytemuck::cast_slice(VERTICES),
+        contents: bytemuck::cast_slice(vertices.as_slice()),
         usage: wgpu::BufferUsages::VERTEX,
     });
-    let index_buffer = device.create_buffer_init(
-        &wgpu::util::BufferInitDescriptor {
-            label: Some("Index Buffer"),
-            contents: bytemuck::cast_slice(INDICES),
-            usage: wgpu::BufferUsages::INDEX,
-        }
-    );
+    let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("Index Buffer"),
+        contents: bytemuck::cast_slice(indices.as_slice()),
+        usage: wgpu::BufferUsages::INDEX,
+    });
     state.vertices = Some(vertex_buffer);
     state.index = Some(index_buffer);
 }
@@ -150,10 +154,13 @@ fn render(base_state: &mut BaseState, dt: Duration) -> Result<(), wgpu::SurfaceE
         let state = downcast_mut::<State>(&mut base_state.extra_state).unwrap();
         let pipeline = state.render_pipeline.as_ref().unwrap();
         render_pass.set_pipeline(pipeline);
-        render_pass.set_bind_group(0, &base_state.camera_bind_group , &[]);
+        render_pass.set_bind_group(0, &base_state.camera_bind_group, &[]);
         render_pass.set_vertex_buffer(0, state.vertices.as_ref().unwrap().slice(..));
-        render_pass.set_index_buffer(state.index.as_ref().unwrap().slice(..), wgpu::IndexFormat::Uint16);
-        render_pass.draw_indexed(0..INDICES.len() as u32, 0,0..1);
+        render_pass.set_index_buffer(
+            state.index.as_ref().unwrap().slice(..),
+            wgpu::IndexFormat::Uint16,
+        );
+        render_pass.draw_indexed(0..state.index_count as u32, 0, 0..1);
     }
 
     // submit will accept anything that implements IntoIter
@@ -162,14 +169,13 @@ fn render(base_state: &mut BaseState, dt: Duration) -> Result<(), wgpu::SurfaceE
     Ok(())
 }
 
+//WIP!!
 fn main() {
     pollster::block_on(run(
         Box::<State>::default(),
         default_configs,
         init,
-        |state, dt| {
-            
-        },
+        |state, dt| {},
         render,
     ))
 }

@@ -162,6 +162,7 @@ fn render(base_state: &mut BaseState, dt: Duration) -> Result<(), wgpu::SurfaceE
     Ok(())
 }
 
+// WIP!!
 fn main() {
     pollster::block_on(run(
         Box::<State>::default(),

@@ -12,3 +12,5 @@ wgpu = "0.16.1"
 as-any = "0.3.0"
 cgmath = "0.18"
 bytemuck = {version = "1.13.1",  features = [ "derive" ]}
+goth-gltf = "0.1.1"
+snafu = "0.7.4"

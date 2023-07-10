@@ -1,4 +1,5 @@
 pub mod camera;
+pub mod asset;
 
 use std::time::Duration;
 
@@ -248,6 +249,16 @@ impl BaseState {
     fn render(&mut self, dt: Duration) -> Result<(), wgpu::SurfaceError> {
         (self.render_fn)(self, dt)
     }
+}
+
+
+pub struct Mesh {
+    pub positions: Vec<[f32; 3]>,
+    pub normals: Vec<[f32; 3]>,
+    pub colors: Vec<[f32; 4]>,
+    pub uvs: Vec<[f32; 2]>,
+    pub tangents: Vec<[f32; 4]>,
+    pub indices: Vec<u32>,
 }
 
 pub async fn run(
