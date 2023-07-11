@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use gf_base::asset::gltf::load_gltf;
-use gf_base::{default_configs, downcast_mut, run, BaseState, StateDynObj};
 use gf_base::wgpu;
+use gf_base::{default_configs, downcast_mut, run, BaseState, StateDynObj};
 
 use wgpu::util::DeviceExt;
 
@@ -35,7 +35,6 @@ impl Vertex {
         }
     }
 }
-
 
 impl StateDynObj for State {}
 
@@ -88,8 +87,14 @@ fn init(base_state: &mut BaseState) {
     });
 
     // let path = "/Users/wicast/Third-part/glTF-Sample-Models/2.0/FlightHelmet/glTF-KTX-BasisU/FlightHelmet.gltf";
-    let path = format!("{}/assets/simple_two.glb", std::env::current_dir().unwrap().display());
-    let path = format!("{}/assets/simple_plane.glb", std::env::current_dir().unwrap().display());
+    let path = format!(
+        "{}/assets/simple_two.glb",
+        std::env::current_dir().unwrap().display()
+    );
+    let path = format!(
+        "{}/assets/simple_plane.glb",
+        std::env::current_dir().unwrap().display()
+    );
     let mesh = load_gltf(path).unwrap();
 
     let mut vertices = vec![];
@@ -158,7 +163,7 @@ fn render(base_state: &mut BaseState, dt: Duration) -> Result<(), wgpu::SurfaceE
         render_pass.set_vertex_buffer(0, state.vertices.as_ref().unwrap().slice(..));
         render_pass.set_index_buffer(
             state.index.as_ref().unwrap().slice(..),
-            wgpu::IndexFormat::Uint16,
+            wgpu::IndexFormat::Uint32,
         );
         render_pass.draw_indexed(0..state.index_count as u32, 0, 0..1);
     }
