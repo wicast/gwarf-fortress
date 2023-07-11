@@ -65,24 +65,28 @@ impl<'a, E: goth_gltf::Extensions> PrimitiveReader<'a, E> {
     }
 }
 
-fn make_buffer_map<'a, E: goth_gltf::Extensions, P: AsRef<Path>>(
-    gltf_info: &'a goth_gltf::Gltf<E>,
-    buffer: Option<&'a [u8]>,
-    path: P,
-) -> BTreeMap<usize, &'a [u8]> {
+fn new_buffer_map_with_embedded(buffer: Option<&[u8]>) -> BTreeMap<usize, &[u8]> {
     let mut buffer_map: BTreeMap<usize, &[u8]> = BTreeMap::new();
     if let Some(buffer) = buffer {
         buffer_map.insert(0_usize, buffer);
     }
-    //TODO
     buffer_map
+}
+
+fn insert_external_buffers(buffer_map: &mut BTreeMap<usize, &[u8]>, buffer_vec: &Vec<Vec<u8>>) {
+    todo!()
 }
 
 pub fn load_gltf<P: AsRef<Path>>(path: P) -> std::result::Result<Mesh, Error> {
     let gltf_bytes = std::fs::read(&path).map_err(|_| Error::FileNotFound)?;
-    let (gltf_info, buffer) = Gltf::<default_extensions::Extensions>::from_bytes(&gltf_bytes)
-        .map_err(|_| Error::GltfLoadFailed)?;
-    let buffer_map = make_buffer_map(&gltf_info, buffer, &path);
+    let (gltf_info, embedded_buffer) =
+        Gltf::<default_extensions::Extensions>::from_bytes(&gltf_bytes)
+            .map_err(|_| Error::GltfLoadFailed)?;
+    let mut buffer_map = new_buffer_map_with_embedded(embedded_buffer);
+    // Load external data;
+    let buffer_vec = vec![];
+
+    insert_external_buffers(&mut buffer_map, &buffer_vec);
 
     let mut positions = vec![];
     let mut indices = vec![];
