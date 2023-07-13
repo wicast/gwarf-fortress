@@ -86,15 +86,15 @@ fn init(base_state: &mut BaseState) {
         multiview: None,
     });
 
-    // let path = "/Users/wicast/Third-part/glTF-Sample-Models/2.0/FlightHelmet/glTF-KTX-BasisU/FlightHelmet.gltf";
+    let path = "/Users/wicast/Third-part/glTF-Sample-Models/2.0/FlightHelmet/glTF-KTX-BasisU/FlightHelmet.gltf";
     let path = format!(
-        "{}/assets/simple_two.glb",
+        "{}/assets/simple_two.gltf",
         std::env::current_dir().unwrap().display()
     );
-    // let path = format!(
-    //     "{}/assets/simple_plane.glb",
-    //     std::env::current_dir().unwrap().display()
-    // );
+    let path = format!(
+        "{}/assets/simple_plane.gltf",
+        std::env::current_dir().unwrap().display()
+    );
     let mesh = load_gltf(path).unwrap();
 
     let mut vertices = vec![];
@@ -180,7 +180,7 @@ fn main() {
         Box::<State>::default(),
         default_configs,
         init,
-        |state, dt| {},
+        |_state, _dt| {},
         render,
     ))
 }

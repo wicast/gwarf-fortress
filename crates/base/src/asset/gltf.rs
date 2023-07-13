@@ -1,7 +1,9 @@
 use std::{collections::BTreeMap, path::Path};
 
-use cgmath::{Rad, Vector3, Matrix4, Vector4};
-use goth_gltf::{default_extensions, Gltf, NodeTransform, Primitive};
+use base64::Engine;
+use cgmath::{Matrix4, Rad, Vector3, Vector4};
+use goth_gltf::default_extensions::{self, Extensions};
+use goth_gltf::{Gltf, NodeTransform, Primitive};
 use snafu::Snafu;
 
 use crate::{asset::read_u32, Mesh};
@@ -69,19 +71,24 @@ fn new_buffer_map_with_embedded(buffer: Option<&[u8]>) -> BTreeMap<usize, &[u8]>
     buffer_map
 }
 
-fn insert_external_buffers(buffer_map: &mut BTreeMap<usize, &[u8]>, buffer_vec: &Vec<Vec<u8>>) {
-    // todo!()
+fn insert_external_buffers<'a>(
+    buffer_vec: &'a [Vec<u8>],
+    buffer_map: &mut BTreeMap<usize, &'a [u8]>,
+) {
+    for i in buffer_vec.iter().enumerate() {
+        buffer_map.insert(i.0, i.1);
+    }
 }
 
 fn node_transform_to_matrix(n_transform: &NodeTransform) -> Matrix4<f32> {
     match n_transform {
-        NodeTransform::Matrix(m) =>{
-            let c0: [f32;4] = m[0..3].try_into().unwrap();
-            let c1: [f32;4] = m[4..7].try_into().unwrap();
-            let c2: [f32;4] = m[8..11].try_into().unwrap();
-            let c3: [f32;4] = m[12..15].try_into().unwrap();
-             Matrix4::from_cols(c0.into(), c1.into(), c2.into(), c3.into())
-            },
+        NodeTransform::Matrix(m) => {
+            let c0: [f32; 4] = m[0..3].try_into().unwrap();
+            let c1: [f32; 4] = m[4..7].try_into().unwrap();
+            let c2: [f32; 4] = m[8..11].try_into().unwrap();
+            let c3: [f32; 4] = m[12..15].try_into().unwrap();
+            Matrix4::from_cols(c0.into(), c1.into(), c2.into(), c3.into())
+        }
         NodeTransform::Set {
             translation,
             rotation,
@@ -100,16 +107,57 @@ fn node_transform_to_matrix(n_transform: &NodeTransform) -> Matrix4<f32> {
     }
 }
 
+fn read_buffer(uri: &str, path: impl AsRef<Path>) -> Result<Vec<u8>, Error> {
+    if uri.starts_with("data") {
+        let (_mime_type, data) = uri.split_once(',').ok_or(Error::GltfLoadFailed)?;
+        log::warn!("Loading buffers from embedded base64 is inefficient. Consider moving the buffers into a seperate file.");
+        base64::engine::general_purpose::STANDARD
+            .decode(data)
+            .map_err(|_| Error::GltfLoadFailed)
+    } else {
+        let mut path = std::path::PathBuf::from(path.as_ref());
+        path.set_file_name(uri);
+        std::fs::read(&path).map_err(|_| Error::GltfLoadFailed)
+    }
+}
+
+fn load_model_buffers<P: AsRef<Path>>(
+    gltf_info: &Gltf<Extensions>,
+    buffer_vec: &mut Vec<Vec<u8>>,
+    path: P,
+) -> Result<(), Error> {
+    for (index, buffer) in gltf_info.buffers.iter().enumerate() {
+        if buffer
+            .extensions
+            .ext_meshopt_compression
+            .as_ref()
+            .map(|ext| ext.fallback)
+            .unwrap_or(false)
+        {
+            continue;
+        }
+
+        match &buffer.uri {
+            Some(uri) => {
+                buffer_vec.insert(index, read_buffer(uri, &path)?);
+            }
+            None => continue,
+        };
+    }
+    Ok(())
+}
+
 pub fn load_gltf<P: AsRef<Path>>(path: P) -> std::result::Result<Mesh, Error> {
     let gltf_bytes = std::fs::read(&path).map_err(|_| Error::FileNotFound)?;
     let (gltf_info, embedded_buffer) =
         Gltf::<default_extensions::Extensions>::from_bytes(&gltf_bytes)
             .map_err(|_| Error::GltfLoadFailed)?;
     let mut buffer_map = new_buffer_map_with_embedded(embedded_buffer);
-    // Load external data;
-    let buffer_vec = vec![];
+    //Load external data;
+    let mut buffer_vec: Vec<Vec<u8>> = vec![];
+    load_model_buffers(&gltf_info, &mut buffer_vec, path)?;
 
-    insert_external_buffers(&mut buffer_map, &buffer_vec);
+    insert_external_buffers(&buffer_vec, &mut buffer_map);
 
     let mut positions = vec![];
     let mut indices = vec![];
@@ -130,8 +178,14 @@ pub fn load_gltf<P: AsRef<Path>>(path: P) -> std::result::Result<Mesh, Error> {
 
             //TODO deal position in shader
             for pos in position {
-                let n_pos: Vector4<f32> = transform * Vector4 { x: pos[0], y: pos[1], z: pos[2], w: 1.0 };
-                positions.push([n_pos[0],n_pos[1],n_pos[2]]);
+                let n_pos: Vector4<f32> = transform
+                    * Vector4 {
+                        x: pos[0],
+                        y: pos[1],
+                        z: pos[2],
+                        w: 1.0,
+                    };
+                positions.push([n_pos[0], n_pos[1], n_pos[2]]);
             }
 
             let mut index = primitive_reader.get_index().ok_or(Error::GltfLoadFailed)?;

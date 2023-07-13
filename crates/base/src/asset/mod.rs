@@ -19,6 +19,17 @@ pub fn read_f32x3(
                     .map(|slice| <[f32; 3]>::try_from(slice).unwrap())
                     .collect()
             }
+            (ComponentType::Float, false, Some(stride)) => {
+                let stride = stride;
+                slice
+                    .chunks(stride)
+                    .map(|slice| {
+                        let aa = &slice[0..12];
+                        let aaa: &[f32] = bytemuck::cast_slice(aa);
+                        <[f32; 3]>::try_from(aaa).unwrap()
+                    })
+                    .collect()
+            }
             (ComponentType::Short, true, Some(stride)) => {
                 let slice: &[i16] = bytemuck::cast_slice(slice);
                 // Cow::Owned(
@@ -73,7 +84,7 @@ pub fn read_f32x3(
                 //     std::line!(),
                 //     other
                 // ));
-                return None
+                return None;
             }
         },
     )
@@ -91,9 +102,7 @@ fn read_u32(
                 slice.iter().map(|&i| i as u32).collect()
             }
             (ComponentType::UnsignedInt, false, None) => Vec::from(bytemuck::cast_slice(slice)),
-            _ => {
-                return None
-            }
+            _ => return None,
         },
     )
 }
