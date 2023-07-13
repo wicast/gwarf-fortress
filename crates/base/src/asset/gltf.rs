@@ -1,6 +1,7 @@
 use std::{collections::BTreeMap, path::Path};
 
-use goth_gltf::{default_extensions, Gltf, Primitive};
+use cgmath::{Rad, Vector3, Matrix4, Vector4};
+use goth_gltf::{default_extensions, Gltf, NodeTransform, Primitive};
 use snafu::Snafu;
 
 use crate::{asset::read_u32, Mesh};
@@ -11,11 +12,6 @@ use super::read_f32x3;
 pub enum Error {
     FileNotFound,
     GltfLoadFailed,
-}
-
-enum Buffer<'a> {
-    Embedded(&'a [u8]),
-    Uri(&'a goth_gltf::Buffer<default_extensions::Extensions>),
 }
 
 struct PrimitiveReader<'a, E: goth_gltf::Extensions> {
@@ -74,7 +70,34 @@ fn new_buffer_map_with_embedded(buffer: Option<&[u8]>) -> BTreeMap<usize, &[u8]>
 }
 
 fn insert_external_buffers(buffer_map: &mut BTreeMap<usize, &[u8]>, buffer_vec: &Vec<Vec<u8>>) {
-    todo!()
+    // todo!()
+}
+
+fn node_transform_to_matrix(n_transform: &NodeTransform) -> Matrix4<f32> {
+    match n_transform {
+        NodeTransform::Matrix(m) =>{
+            let c0: [f32;4] = m[0..3].try_into().unwrap();
+            let c1: [f32;4] = m[4..7].try_into().unwrap();
+            let c2: [f32;4] = m[8..11].try_into().unwrap();
+            let c3: [f32;4] = m[12..15].try_into().unwrap();
+             Matrix4::from_cols(c0.into(), c1.into(), c2.into(), c3.into())
+            },
+        NodeTransform::Set {
+            translation,
+            rotation,
+            scale,
+        } => {
+            let m = cgmath::Matrix4::from_translation(Vector3 {
+                x: translation[0],
+                y: translation[1],
+                z: translation[2],
+            });
+            let m = cgmath::Matrix4::from_nonuniform_scale(scale[0], scale[1], scale[2]) * m;
+            let m = cgmath::Matrix4::from_angle_x(Rad(rotation[0])) * m;
+            let m = cgmath::Matrix4::from_angle_x(Rad(rotation[1])) * m;
+            cgmath::Matrix4::from_angle_x(Rad(rotation[2])) * m
+        }
+    }
 }
 
 pub fn load_gltf<P: AsRef<Path>>(path: P) -> std::result::Result<Mesh, Error> {
@@ -94,11 +117,10 @@ pub fn load_gltf<P: AsRef<Path>>(path: P) -> std::result::Result<Mesh, Error> {
     let scene = gltf_info.scenes.get(0).ok_or(Error::GltfLoadFailed)?;
     for node_id in &scene.nodes {
         let node = &gltf_info.nodes[*node_id];
+        let transform = node_transform_to_matrix(&node.transform());
         let mesh_id = &node.mesh.ok_or(Error::GltfLoadFailed)?;
         let mesh = &gltf_info.meshes[*mesh_id];
         for primitive in &mesh.primitives {
-            // println!("primitive: {:?}", primitive);
-            // Mesh data
             let pos_count = positions.len() as u32;
 
             let primitive_reader = PrimitiveReader::new(&gltf_info, &buffer_map, primitive);
@@ -106,10 +128,15 @@ pub fn load_gltf<P: AsRef<Path>>(path: P) -> std::result::Result<Mesh, Error> {
                 .get_positions()
                 .ok_or(Error::GltfLoadFailed)?;
 
-            let mut index = primitive_reader.get_index().ok_or(Error::GltfLoadFailed)?;
-            index.iter_mut().for_each(|i| *i += pos_count);
+            //TODO deal position in shader
+            for pos in position {
+                let n_pos: Vector4<f32> = transform * Vector4 { x: pos[0], y: pos[1], z: pos[2], w: 1.0 };
+                positions.push([n_pos[0],n_pos[1],n_pos[2]]);
+            }
 
-            positions.extend(position);
+            let mut index = primitive_reader.get_index().ok_or(Error::GltfLoadFailed)?;
+            index.iter_mut().for_each(|i: &mut u32| *i += pos_count);
+
             indices.extend(index);
         }
     }
@@ -121,65 +148,6 @@ pub fn load_gltf<P: AsRef<Path>>(path: P) -> std::result::Result<Mesh, Error> {
         uvs: vec![],
         tangents: vec![],
         indices,
+        transform: vec![],
     })
 }
-
-// fn collect_buffer_view_map(
-//     path: &std::path::Path,
-//     gltf: &goth_gltf::Gltf<Extensions>,
-//     glb_buffer: Option<&[u8]>,
-// ) -> anyhow::Result<HashMap<usize, Vec<u8>>> {
-//     use std::borrow::Cow;
-
-//     let mut buffer_map = HashMap::new();
-
-//     if let Some(glb_buffer) = glb_buffer {
-//         buffer_map.insert(0, Cow::Borrowed(glb_buffer));
-//     }
-
-//     for (index, buffer) in gltf.buffers.iter().enumerate() {
-//         if buffer
-//             .extensions
-//             .ext_meshopt_compression
-//             .as_ref()
-//             .map(|ext| ext.fallback)
-//             .unwrap_or(false)
-//         {
-//             continue;
-//         }
-
-//         let uri = match &buffer.uri {
-//             Some(uri) => uri,
-//             None => continue,
-//         };
-
-//         if uri.starts_with("data") {
-//             let (_mime_type, data) = uri
-//                 .split_once(',')
-//                 .ok_or_else(|| anyhow::anyhow!("Failed to get data uri split"))?;
-//             log::warn!("Loading buffers from embedded base64 is inefficient. Consider moving the buffers into a seperate file.");
-//             buffer_map.insert(
-//                 index,
-//                 Cow::Owned(base64::engine::general_purpose::STANDARD.decode(data)?),
-//             );
-//         } else {
-//             let mut path = std::path::PathBuf::from(path);
-//             path.set_file_name(uri);
-//             buffer_map.insert(index, Cow::Owned(std::fs::read(&path).unwrap()));
-//         }
-//     }
-
-//     let mut buffer_view_map = HashMap::new();
-
-//     for (i, buffer_view) in gltf.buffer_views.iter().enumerate() {
-//         if let Some(buffer) = buffer_map.get(&buffer_view.buffer) {
-//             buffer_view_map.insert(
-//                 i,
-//                 buffer[buffer_view.byte_offset..buffer_view.byte_offset + buffer_view.byte_length]
-//                     .to_vec(),
-//             );
-//         }
-//     }
-
-//     Ok(buffer_view_map)
-// }

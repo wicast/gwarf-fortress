@@ -91,10 +91,10 @@ fn init(base_state: &mut BaseState) {
         "{}/assets/simple_two.glb",
         std::env::current_dir().unwrap().display()
     );
-    let path = format!(
-        "{}/assets/simple_plane.glb",
-        std::env::current_dir().unwrap().display()
-    );
+    // let path = format!(
+    //     "{}/assets/simple_plane.glb",
+    //     std::env::current_dir().unwrap().display()
+    // );
     let mesh = load_gltf(path).unwrap();
 
     let mut vertices = vec![];

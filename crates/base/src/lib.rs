@@ -252,6 +252,7 @@ impl BaseState {
 }
 
 
+//TODO deal with multiple node
 pub struct Mesh {
     pub positions: Vec<[f32; 3]>,
     pub normals: Vec<[f32; 3]>,
@@ -259,6 +260,7 @@ pub struct Mesh {
     pub uvs: Vec<[f32; 2]>,
     pub tangents: Vec<[f32; 4]>,
     pub indices: Vec<u32>,
+    pub transform: Vec<[f32; 16]>
 }
 
 pub async fn run(
