@@ -16,6 +16,7 @@ use winit::{
 
 pub use bytemuck;
 pub use env_logger;
+pub use snafu;
 pub use wgpu;
 pub use winit;
 
@@ -135,7 +136,8 @@ impl BaseState {
         let camera = Camera::new((0.0, 5.0, 10.0), -90.0, -20.0, projection);
         let mut camera_uniform = CameraUniform::new();
         camera_uniform.update_view_proj(&camera);
-        let camera_controller = camera::CameraController::new(4.0, 40.0);
+        //TODO the camera sensitivity is different when using cgmath
+        let camera_controller = camera::CameraController::new(4.0, 10.0);
 
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Camera Buffer"),

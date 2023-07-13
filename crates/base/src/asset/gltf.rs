@@ -1,10 +1,10 @@
 use std::{collections::BTreeMap, path::Path};
 
-use base64::Engine;
+use base64::{DecodeError, Engine};
 use glam::{Mat4, Quat, Vec3};
 use goth_gltf::default_extensions::{self, Extensions};
 use goth_gltf::{Gltf, NodeTransform, Primitive};
-use snafu::Snafu;
+use snafu::{OptionExt, ResultExt, Snafu};
 
 use crate::{asset::read_u32, Mesh};
 
@@ -12,8 +12,12 @@ use super::read_f32x3;
 
 #[derive(Debug, Snafu)]
 pub enum Error {
-    FileNotFound,
-    GltfLoadFailed,
+    JsonDeSerFailed { source: nanoserde::DeJsonErr },
+    DefaultSceneNotFound,
+    Base64MIMENotFound,
+    Base64DecodeFailed { source: DecodeError },
+    FileReadFailed { source: std::io::Error },
+    FailedToGetU8Data
 }
 
 struct PrimitiveReader<'a, E: goth_gltf::Extensions> {
@@ -35,7 +39,10 @@ impl<'a, E: goth_gltf::Extensions> PrimitiveReader<'a, E> {
         }
     }
 
-    fn get_buffer_inner(&self, id: usize) -> Option<(&goth_gltf::Accessor, Option<usize>, &[u8])> {
+    fn get_buffer_data_by_index(
+        &self,
+        id: usize,
+    ) -> Option<(&goth_gltf::Accessor, Option<usize>, &[u8])> {
         let accessor = &self.gltf_info.accessors[id];
         let buffer_view_id = accessor.buffer_view?;
         let mut offset = accessor.byte_offset;
@@ -54,13 +61,13 @@ impl<'a, E: goth_gltf::Extensions> PrimitiveReader<'a, E> {
 
     fn get_positions(&self) -> Option<Vec<[f32; 3]>> {
         let position_id = self.primitive.attributes.position?;
-        let (accessor, stride, buffer) = self.get_buffer_inner(position_id)?;
+        let (accessor, stride, buffer) = self.get_buffer_data_by_index(position_id)?;
         read_f32x3(buffer, stride, accessor)
     }
 
     fn get_index(&self) -> Option<Vec<u32>> {
         let index_id = self.primitive.indices?;
-        let (accessor, stride, slice) = self.get_buffer_inner(index_id)?;
+        let (accessor, stride, slice) = self.get_buffer_data_by_index(index_id)?;
         read_u32(slice, stride, accessor)
     }
 }
@@ -100,15 +107,15 @@ fn node_transform_to_matrix(n_transform: &NodeTransform) -> Mat4 {
 
 fn read_buffer(uri: &str, path: impl AsRef<Path>) -> Result<Vec<u8>, Error> {
     if uri.starts_with("data") {
-        let (_mime_type, data) = uri.split_once(',').ok_or(Error::GltfLoadFailed)?;
+        let (_mime_type, data) = uri.split_once(',').context(Base64MIMENotFoundSnafu)?;
         log::warn!("Loading buffers from embedded base64 is inefficient. Consider moving the buffers into a seperate file.");
         base64::engine::general_purpose::STANDARD
             .decode(data)
-            .map_err(|_| Error::GltfLoadFailed)
+            .context(Base64DecodeFailedSnafu)
     } else {
         let mut path = std::path::PathBuf::from(path.as_ref());
         path.set_file_name(uri);
-        std::fs::read(&path).map_err(|_| Error::GltfLoadFailed)
+        std::fs::read(&path).context(FileReadFailedSnafu)
     }
 }
 
@@ -139,10 +146,10 @@ fn load_model_buffers<P: AsRef<Path>>(
 }
 
 pub fn load_gltf<P: AsRef<Path>>(path: P) -> std::result::Result<Mesh, Error> {
-    let gltf_bytes = std::fs::read(&path).map_err(|_| Error::FileNotFound)?;
+    let gltf_bytes = std::fs::read(&path).context(FileReadFailedSnafu)?;
     let (gltf_info, embedded_buffer) =
         Gltf::<default_extensions::Extensions>::from_bytes(&gltf_bytes)
-            .map_err(|_| Error::GltfLoadFailed)?;
+            .context(JsonDeSerFailedSnafu)?;
     let mut buffer_map = new_buffer_map_with_embedded(embedded_buffer);
     //Load external data;
     let mut buffer_vec: Vec<Vec<u8>> = vec![];
@@ -153,19 +160,22 @@ pub fn load_gltf<P: AsRef<Path>>(path: P) -> std::result::Result<Mesh, Error> {
     let mut positions = vec![];
     let mut indices = vec![];
 
-    let scene = gltf_info.scenes.get(0).ok_or(Error::GltfLoadFailed)?;
+    let scene = gltf_info.scenes.get(0).context(DefaultSceneNotFoundSnafu)?;
     for node_id in &scene.nodes {
         let node = &gltf_info.nodes[*node_id];
+        let mesh_id = match node.mesh {
+            Some(id) => id,
+            None => continue,
+        };
         let transform = node_transform_to_matrix(&node.transform());
-        let mesh_id = &node.mesh.ok_or(Error::GltfLoadFailed)?;
-        let mesh = &gltf_info.meshes[*mesh_id];
+        let mesh = &gltf_info.meshes[mesh_id];
         for primitive in &mesh.primitives {
             let pos_count = positions.len() as u32;
 
             let primitive_reader = PrimitiveReader::new(&gltf_info, &buffer_map, primitive);
             let position = primitive_reader
                 .get_positions()
-                .ok_or(Error::GltfLoadFailed)?;
+                .ok_or(Error::FailedToGetU8Data)?;
 
             //TODO deal position in shader
             for pos in position {
@@ -173,7 +183,7 @@ pub fn load_gltf<P: AsRef<Path>>(path: P) -> std::result::Result<Mesh, Error> {
                 positions.push(n_pos.truncate().to_array());
             }
 
-            let mut index = primitive_reader.get_index().ok_or(Error::GltfLoadFailed)?;
+            let mut index = primitive_reader.get_index().ok_or(Error::FailedToGetU8Data)?;
             index.iter_mut().for_each(|i: &mut u32| *i += pos_count);
 
             indices.extend(index);

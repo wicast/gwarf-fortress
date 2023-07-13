@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use gf_base::asset::gltf::load_gltf;
+use gf_base::snafu::ErrorCompat;
 use gf_base::wgpu;
 use gf_base::{default_configs, downcast_mut, run, BaseState, StateDynObj};
 
@@ -98,7 +99,17 @@ fn init(base_state: &mut BaseState) {
         "{}/assets/gltf/FlightHelmet/FlightHelmet.gltf",
         std::env::current_dir().unwrap().display()
     );
-    let mesh = load_gltf(path).unwrap();
+    
+    let mesh = match load_gltf(path) {
+        Ok(mesh) => mesh,
+        Err(e) => {
+            eprintln!("An error occurred: {}", e);
+            if let Some(bt) = ErrorCompat::backtrace(&e) {
+                eprintln!("{:?}", bt);
+            }
+            return;
+        }
+    };
 
     let mut vertices = vec![];
     for m in mesh.positions {
