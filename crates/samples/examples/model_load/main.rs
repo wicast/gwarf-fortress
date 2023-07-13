@@ -86,15 +86,18 @@ fn init(base_state: &mut BaseState) {
         multiview: None,
     });
 
-    let path = "D:\\ThirdParty\\glTF-Sample-Models\\2.0\\FlightHelmet\\glTF-KTX-BasisU/FlightHelmet.gltf";
-    // let path = format!(
-    //     "{}/assets/simple_two.gltf",
-    //     std::env::current_dir().unwrap().display()
-    // );
-    // let path = format!(
-    //     "{}/assets/simple_plane.gltf",
-    //     std::env::current_dir().unwrap().display()
-    // );
+    let path = format!(
+        "{}/assets/gltf/simple_two.gltf",
+        std::env::current_dir().unwrap().display()
+    );
+    let path = format!(
+        "{}/assets/gltf/simple_plane.gltf",
+        std::env::current_dir().unwrap().display()
+    );
+    let path = format!(
+        "{}/assets/gltf/FlightHelmet/FlightHelmet.gltf",
+        std::env::current_dir().unwrap().display()
+    );
     let mesh = load_gltf(path).unwrap();
 
     let mut vertices = vec![];
