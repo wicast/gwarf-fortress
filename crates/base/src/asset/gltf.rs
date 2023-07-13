@@ -101,7 +101,8 @@ fn node_transform_to_matrix(n_transform: &NodeTransform) -> Matrix4<f32> {
             });
             let m = cgmath::Matrix4::from_nonuniform_scale(scale[0], scale[1], scale[2]) * m;
             let m = cgmath::Matrix4::from_angle_x(Rad(rotation[0])) * m;
-            let m = cgmath::Matrix4::from_angle_x(Rad(rotation[1])) * m;
+            let m = cgmath::Matrix4::from_angle_y(Rad(rotation[1])) * m;
+            let m = cgmath::Matrix4::from_angle_z(Rad(rotation[1])) * m;
             cgmath::Matrix4::from_angle_x(Rad(rotation[2])) * m
         }
     }
