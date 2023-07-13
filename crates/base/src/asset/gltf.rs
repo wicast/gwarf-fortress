@@ -42,7 +42,7 @@ impl<'a, E: goth_gltf::Extensions> PrimitiveReader<'a, E> {
 
         let buffer_view = &self.gltf_info.buffer_views[buffer_view_id];
         offset += buffer_view.byte_offset;
-        let length = buffer_view.byte_length;
+        let length = accessor.byte_length(buffer_view).min(buffer_view.byte_length);
         let stride = buffer_view.byte_stride;
         let buffer_id = buffer_view.buffer;
         let buffer = *self.buffer_map.get(&buffer_id)?;
