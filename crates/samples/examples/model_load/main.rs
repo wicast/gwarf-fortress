@@ -128,7 +128,7 @@ fn init(base_state: &mut BaseState) {
     state.index = Some(index_buffer);
 }
 
-fn render(base_state: &mut BaseState, dt: Duration) -> Result<(), wgpu::SurfaceError> {
+fn render(base_state: &mut BaseState, _dt: Duration) -> Result<(), wgpu::SurfaceError> {
     let output = base_state.surface.get_current_texture()?;
     let view = output
         .texture

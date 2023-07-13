@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, path::Path};
 
 use base64::Engine;
-use cgmath::{Matrix4, Rad, Vector3, Vector4};
+use glam::{Mat4, Quat, Vec3};
 use goth_gltf::default_extensions::{self, Extensions};
 use goth_gltf::{Gltf, NodeTransform, Primitive};
 use snafu::Snafu;
@@ -42,7 +42,9 @@ impl<'a, E: goth_gltf::Extensions> PrimitiveReader<'a, E> {
 
         let buffer_view = &self.gltf_info.buffer_views[buffer_view_id];
         offset += buffer_view.byte_offset;
-        let length = accessor.byte_length(buffer_view).min(buffer_view.byte_length);
+        let length = accessor
+            .byte_length(buffer_view)
+            .min(buffer_view.byte_length);
         let stride = buffer_view.byte_stride;
         let buffer_id = buffer_view.buffer;
         let buffer = *self.buffer_map.get(&buffer_id)?;
@@ -80,30 +82,18 @@ fn insert_external_buffers<'a>(
     }
 }
 
-fn node_transform_to_matrix(n_transform: &NodeTransform) -> Matrix4<f32> {
+fn node_transform_to_matrix(n_transform: &NodeTransform) -> Mat4 {
     match n_transform {
-        NodeTransform::Matrix(m) => {
-            let c0: [f32; 4] = m[0..3].try_into().unwrap();
-            let c1: [f32; 4] = m[4..7].try_into().unwrap();
-            let c2: [f32; 4] = m[8..11].try_into().unwrap();
-            let c3: [f32; 4] = m[12..15].try_into().unwrap();
-            Matrix4::from_cols(c0.into(), c1.into(), c2.into(), c3.into())
-        }
+        NodeTransform::Matrix(m) => Mat4::from_cols_array(m),
         NodeTransform::Set {
             translation,
             rotation,
             scale,
         } => {
-            let m = cgmath::Matrix4::from_translation(Vector3 {
-                x: translation[0],
-                y: translation[1],
-                z: translation[2],
-            });
-            let m = cgmath::Matrix4::from_nonuniform_scale(scale[0], scale[1], scale[2]) * m;
-            let m = cgmath::Matrix4::from_angle_x(Rad(rotation[0])) * m;
-            let m = cgmath::Matrix4::from_angle_y(Rad(rotation[1])) * m;
-            let m = cgmath::Matrix4::from_angle_z(Rad(rotation[1])) * m;
-            cgmath::Matrix4::from_angle_x(Rad(rotation[2])) * m
+            let rot = Quat::from_array(*rotation);
+            let m = Mat4::from_translation(Vec3::from_slice(translation));
+            let m = Mat4::from_quat(rot) * m;
+            Mat4::from_scale(Vec3::from_slice(scale)) * m
         }
     }
 }
@@ -179,14 +169,8 @@ pub fn load_gltf<P: AsRef<Path>>(path: P) -> std::result::Result<Mesh, Error> {
 
             //TODO deal position in shader
             for pos in position {
-                let n_pos: Vector4<f32> = transform
-                    * Vector4 {
-                        x: pos[0],
-                        y: pos[1],
-                        z: pos[2],
-                        w: 1.0,
-                    };
-                positions.push([n_pos[0], n_pos[1], n_pos[2]]);
+                let n_pos = transform * Vec3::from_slice(&pos).extend(1.0);
+                positions.push(n_pos.truncate().to_array());
             }
 
             let mut index = primitive_reader.get_index().ok_or(Error::GltfLoadFailed)?;
@@ -203,6 +187,5 @@ pub fn load_gltf<P: AsRef<Path>>(path: P) -> std::result::Result<Mesh, Error> {
         uvs: vec![],
         tangents: vec![],
         indices,
-        transform: vec![],
     })
 }

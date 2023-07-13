@@ -1,5 +1,5 @@
-pub mod camera;
 pub mod asset;
+pub mod camera;
 
 use std::time::Duration;
 
@@ -131,17 +131,11 @@ impl BaseState {
         };
         surface.configure(&device, &config);
 
-        let projection =
-            camera::Projection::new(config.width, config.height, cgmath::Deg(45.0), 0.1, 100.0);
-        let camera = Camera::new(
-            (0.0, 5.0, 10.0),
-            cgmath::Deg(-90.0),
-            cgmath::Deg(-20.0),
-            projection,
-        );
+        let projection = camera::Projection::new(config.width, config.height, 45.0, 0.1, 100.0);
+        let camera = Camera::new((0.0, 5.0, 10.0), -90.0, -20.0, projection);
         let mut camera_uniform = CameraUniform::new();
         camera_uniform.update_view_proj(&camera);
-        let camera_controller = camera::CameraController::new(4.0, 0.4);
+        let camera_controller = camera::CameraController::new(4.0, 40.0);
 
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Camera Buffer"),
@@ -251,7 +245,6 @@ impl BaseState {
     }
 }
 
-
 //TODO deal with multiple node
 pub struct Mesh {
     pub positions: Vec<[f32; 3]>,
@@ -260,7 +253,6 @@ pub struct Mesh {
     pub uvs: Vec<[f32; 2]>,
     pub tangents: Vec<[f32; 4]>,
     pub indices: Vec<u32>,
-    pub transform: Vec<[f32; 16]>
 }
 
 pub async fn run(
