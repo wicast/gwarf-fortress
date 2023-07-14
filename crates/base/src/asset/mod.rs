@@ -1,3 +1,4 @@
+use glam::Vec2;
 use goth_gltf::ComponentType;
 
 pub mod gltf;
@@ -24,9 +25,7 @@ pub fn read_f32x3(
                 slice
                     .chunks(stride)
                     .map(|slice| {
-                        let aa = &slice[0..12];
-                        let aaa: &[f32] = bytemuck::cast_slice(aa);
-                        <[f32; 3]>::try_from(aaa).unwrap()
+                        <[f32; 3]>::try_from(bytemuck::cast_slice(&slice[0..12])).unwrap()
                     })
                     .collect()
             }
@@ -85,6 +84,43 @@ pub fn read_f32x3(
                 //     other
                 // ));
                 return None;
+            }
+        },
+    )
+}
+
+fn read_f32x2(
+    slice: & [u8],
+    byte_stride: Option<usize>,
+    accessor: &goth_gltf::Accessor,
+) -> Option<Vec<[f32; 2]>> {
+    Some(
+        match (accessor.component_type, accessor.normalized, byte_stride) {
+            (ComponentType::Float, false, None | Some(8)) => {
+                Vec::from(bytemuck::cast_slice(slice))
+            }
+            (ComponentType::Float, false, Some(stride)) => {
+                let slice: &[f32] = bytemuck::cast_slice(slice);
+                
+                    slice
+                        .chunks(stride / 4)
+                        .map(|slice| {<[f32; 2]>::try_from(bytemuck::cast_slice(&slice[0..8])).unwrap()})
+                        .collect()
+                
+            }
+            (ComponentType::UnsignedShort, true, Some(stride)) => {
+                let slice: &[u16] = bytemuck::cast_slice(slice);
+                    slice
+                        .chunks(stride / 2)
+                        .map(move |slice| {
+                            // Vec2::from(std::array::from_fn(|i| unsigned_short_to_float(slice[i])))
+                            <[f32;2]>::try_from(bytemuck::cast_slice(&slice[0..8])).unwrap()
+                        })
+                        .collect()
+                
+            }
+            _other => {
+                return None
             }
         },
     )

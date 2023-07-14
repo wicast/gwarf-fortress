@@ -8,7 +8,7 @@ use snafu::{OptionExt, ResultExt, Snafu};
 
 use crate::{asset::read_u32, Mesh};
 
-use super::read_f32x3;
+use super::{read_f32x2, read_f32x3};
 
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -17,7 +17,7 @@ pub enum Error {
     Base64MIMENotFound,
     Base64DecodeFailed { source: DecodeError },
     FileReadFailed { source: std::io::Error },
-    FailedToGetU8Data
+    FailedToGetU8Data,
 }
 
 struct PrimitiveReader<'a, E: goth_gltf::Extensions> {
@@ -60,15 +60,21 @@ impl<'a, E: goth_gltf::Extensions> PrimitiveReader<'a, E> {
     }
 
     fn get_positions(&self) -> Option<Vec<[f32; 3]>> {
-        let position_id = self.primitive.attributes.position?;
-        let (accessor, stride, buffer) = self.get_buffer_data_by_index(position_id)?;
-        read_f32x3(buffer, stride, accessor)
+        let id = self.primitive.attributes.position?;
+        let (accessor, stride, slice) = self.get_buffer_data_by_index(id)?;
+        read_f32x3(slice, stride, accessor)
     }
 
     fn get_index(&self) -> Option<Vec<u32>> {
-        let index_id = self.primitive.indices?;
-        let (accessor, stride, slice) = self.get_buffer_data_by_index(index_id)?;
+        let id = self.primitive.indices?;
+        let (accessor, stride, slice) = self.get_buffer_data_by_index(id)?;
         read_u32(slice, stride, accessor)
+    }
+
+    fn get_uv0(&self) -> Option<Vec<[f32; 2]>> {
+        let id = self.primitive.attributes.texcoord_0?;
+        let (accessor, stride, slice) = self.get_buffer_data_by_index(id)?;
+        read_f32x2(slice, stride, accessor)
     }
 }
 
@@ -159,6 +165,7 @@ pub fn load_gltf<P: AsRef<Path>>(path: P) -> std::result::Result<Mesh, Error> {
 
     let mut positions = vec![];
     let mut indices = vec![];
+    let mut uv0 = vec![];
 
     let scene = gltf_info.scenes.get(0).context(DefaultSceneNotFoundSnafu)?;
     for node_id in &scene.nodes {
@@ -183,18 +190,24 @@ pub fn load_gltf<P: AsRef<Path>>(path: P) -> std::result::Result<Mesh, Error> {
                 positions.push(n_pos.truncate().to_array());
             }
 
-            let mut index = primitive_reader.get_index().ok_or(Error::FailedToGetU8Data)?;
+            uv0.extend(primitive_reader.get_uv0().ok_or(Error::FailedToGetU8Data)?);
+
+            let mut index = primitive_reader
+                .get_index()
+                .ok_or(Error::FailedToGetU8Data)?;
             index.iter_mut().for_each(|i: &mut u32| *i += pos_count);
 
             indices.extend(index);
         }
     }
 
+    log::info!("positions: {}, uv0:{}, indices:{}", positions.len(), uv0.len(), indices.len());
+
     Ok(Mesh {
         positions,
         normals: vec![],
         colors: vec![],
-        uvs: vec![],
+        uv0,
         tangents: vec![],
         indices,
     })

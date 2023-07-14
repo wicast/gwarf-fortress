@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use as_any::{AsAny, Downcast};
 use camera::{Camera, CameraController, CameraUniform};
+use env_logger::Env;
 use wgpu::util::DeviceExt;
 use winit::{
     event::{
@@ -252,7 +253,7 @@ pub struct Mesh {
     pub positions: Vec<[f32; 3]>,
     pub normals: Vec<[f32; 3]>,
     pub colors: Vec<[f32; 4]>,
-    pub uvs: Vec<[f32; 2]>,
+    pub uv0: Vec<[f32; 2]>,
     pub tangents: Vec<[f32; 4]>,
     pub indices: Vec<u32>,
 }
@@ -264,7 +265,7 @@ pub async fn run(
     tick_fn: TickFn,
     render_fn: RenderFn,
 ) {
-    env_logger::init();
+    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new().build(&event_loop).unwrap();
     let mut last_render_time = std::time::Instant::now();
