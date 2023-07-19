@@ -1,6 +1,7 @@
+use std::ops::Range;
 use std::time::Duration;
 
-use gf_base::asset::gltf::load_gltf;
+use gf_base::asset::gltf::{load_gltf, new_load_gltf};
 use gf_base::snafu::ErrorCompat;
 use gf_base::wgpu;
 use gf_base::{default_configs, downcast_mut, run, BaseState, StateDynObj};
@@ -88,19 +89,30 @@ fn init(base_state: &mut BaseState) {
     });
 
     let path = format!(
-        "{}/assets/gltf/simple_two.gltf",
-        std::env::current_dir().unwrap().display()
+        "{}/../../assets/gltf/simple_two.glb",
+        env!("CARGO_MANIFEST_DIR")
     );
-    let path = format!(
-        "{}/assets/gltf/simple_plane.gltf",
-        std::env::current_dir().unwrap().display()
-    );
-    let path = format!(
-        "{}/assets/gltf/FlightHelmet/FlightHelmet.gltf",
-        std::env::current_dir().unwrap().display()
-    );
-    
-    let mesh = match load_gltf(path) {
+    // let path = format!(
+    //     "{}/../../assets/gltf/simple_plane.gltf",
+    //     env!("CARGO_MANIFEST_DIR")
+    // );
+    // let path = format!(
+    //     "{}/../../assets/gltf/FlightHelmet/FlightHelmet.gltf",
+    //     env!("CARGO_MANIFEST_DIR")
+    // );
+
+    let (scene_view, scene_buffer) = match new_load_gltf(&path) {
+        Ok(scene) => scene,
+        Err(e) => {
+            eprintln!("An error occurred: {}", e);
+            if let Some(bt) = ErrorCompat::backtrace(&e) {
+                eprintln!("{:?}", bt);
+            }
+            return;
+        }
+    };
+
+    let mesh = match load_gltf(&path) {
         Ok(mesh) => mesh,
         Err(e) => {
             eprintln!("An error occurred: {}", e);
@@ -197,4 +209,89 @@ fn main() {
         |_state, _dt| {},
         render,
     ))
+}
+
+#[test]
+fn test_gltf_loader() {
+    let path = format!(
+        "{}/../../assets/gltf/simple_two.glb",
+        env!("CARGO_MANIFEST_DIR")
+    );
+
+    let (scene_view, scene_buffer) = match new_load_gltf(&path) {
+        Ok(scene) => scene,
+        Err(e) => {
+            eprintln!("An error occurred: {}", e);
+            if let Some(bt) = ErrorCompat::backtrace(&e) {
+                eprintln!("{:?}", bt);
+            }
+            panic!()
+        }
+    };
+
+    let positions: Vec<[f32; 3]> = check_buffer(
+        &scene_buffer,
+        scene_view.nodes[1].meshes[0].positions.clone(),
+    );
+    let index: Vec<[u16; 1]> = check_buffer(
+        &scene_buffer,
+        scene_view.nodes[1].meshes[0].index.indices.clone(),
+    );
+
+    // println!("{:?}", index);
+    println!("simple two mat 0: {:?}", scene_view.materials[0]);
+
+    let path = format!(
+        "{}/../../assets/gltf/FlightHelmet/FlightHelmet.gltf",
+        env!("CARGO_MANIFEST_DIR")
+    );
+
+    let (scene_view, scene_buffer) = match new_load_gltf(&path) {
+        Ok(scene) => scene,
+        Err(e) => {
+            eprintln!("An error occurred: {}", e);
+            if let Some(bt) = ErrorCompat::backtrace(&e) {
+                eprintln!("{:?}", bt);
+            }
+            panic!()
+        }
+    };
+
+    let positions: Vec<[f32; 3]> = check_buffer(
+        &scene_buffer,
+        scene_view.nodes[1].meshes[0].positions.clone(),
+    );
+    let index: Vec<[u16; 1]> = check_buffer(
+        &scene_buffer,
+        scene_view.nodes[1].meshes[0].index.indices.clone(),
+    );
+
+    // println!("{:?}", positions);
+
+    println!("mat 0: {:?}", scene_view.materials[0]);
+
+    let tex_info = scene_view.materials[0]
+        .get(&gf_base::asset::gltf::MaterialKey::BaseColor)
+        .unwrap();
+    println!(
+        "{:?}",
+        tex_info.mime
+    );
+    let img = gf_base::image::load_from_memory(&scene_buffer[tex_info.data_range.clone().unwrap()]).unwrap();
+    // let path = format!(
+    //     "{}/assets/gltf/simple_plane.gltf",
+    //     std::env::current_dir().unwrap().display()
+    // );
+
+    // img.save("test.jpg").unwrap();
+}
+
+fn check_buffer<T: Copy + bytemuck::Pod, const N: usize>(
+    scene_buffer: &[u8],
+    range: Range<usize>,
+) -> Vec<[T; N]> {
+    bytemuck::cast_slice(&scene_buffer[range])
+        .chunks(N)
+        .map(|slice| <[T; N]>::try_from(slice).unwrap())
+        .collect()
 }

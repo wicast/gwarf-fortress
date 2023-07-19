@@ -20,6 +20,7 @@ pub use env_logger;
 pub use snafu;
 pub use wgpu;
 pub use winit;
+pub use image;
 
 type GetConfigFn = fn() -> (wgpu::Backends, wgpu::Features);
 type InitFn = fn(state: &mut BaseState) -> ();
@@ -246,16 +247,6 @@ impl BaseState {
     fn render(&mut self, dt: Duration) -> Result<(), wgpu::SurfaceError> {
         (self.render_fn)(self, dt)
     }
-}
-
-//TODO deal with multiple node
-pub struct Mesh {
-    pub positions: Vec<[f32; 3]>,
-    pub normals: Vec<[f32; 3]>,
-    pub colors: Vec<[f32; 4]>,
-    pub uv0: Vec<[f32; 2]>,
-    pub tangents: Vec<[f32; 4]>,
-    pub indices: Vec<u32>,
 }
 
 pub async fn run(

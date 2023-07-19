@@ -1,4 +1,3 @@
-use glam::Vec2;
 use goth_gltf::ComponentType;
 
 pub mod gltf;
