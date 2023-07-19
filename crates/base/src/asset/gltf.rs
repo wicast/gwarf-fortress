@@ -4,12 +4,8 @@ use std::{collections::BTreeMap, path::Path};
 use base64::{DecodeError, Engine};
 use glam::{Mat4, Quat, Vec3};
 use goth_gltf::{default_extensions, ComponentType, NormalTextureInfo, OcclusionTextureInfo};
-use goth_gltf::{Gltf, NodeTransform, Primitive, PrimitiveMode, TextureInfo};
+use goth_gltf::{Gltf, NodeTransform, PrimitiveMode, TextureInfo};
 use snafu::{Backtrace, OptionExt, ResultExt, Snafu};
-
-use crate::asset::read_u32;
-
-use super::{read_f32x2, read_f32x3};
 
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -49,12 +45,12 @@ pub struct SceneView {
 #[derive(Debug, Default)]
 pub struct Node {
     pub name: Option<String>,
-    pub meshes: Vec<TheMesh>,
+    pub meshes: Vec<Mesh>,
     pub transform: [f32; 16],
 }
 
 #[derive(Debug, Default)]
-pub struct TheMesh {
+pub struct Mesh {
     pub positions: Range<usize>,
     pub normals: Option<Range<usize>>,
     pub uv0: Option<Range<usize>>,
@@ -119,7 +115,7 @@ pub struct TextureData {
     pub sampler: usize,
 }
 
-pub fn new_load_gltf<P: AsRef<Path>>(path: P) -> Result<(SceneView, Vec<u8>), Error> {
+pub fn load_gltf<P: AsRef<Path>>(path: P) -> Result<(SceneView, Vec<u8>), Error> {
     let gltf_bytes = std::fs::read(&path).context(FileReadFailedSnafu {
         path: path.as_ref().to_string_lossy(),
     })?;
@@ -158,7 +154,7 @@ pub fn new_load_gltf<P: AsRef<Path>>(path: P) -> Result<(SceneView, Vec<u8>), Er
                     .get_raw_buffer(primitive.indices.context(NoIndexFoundSnafu { mesh_id })?)?,
                 r#type: index_accessor.component_type.try_into()?,
             };
-            let mesh_out = TheMesh {
+            let mesh_out = Mesh {
                 positions: primitive_reader.get_raw_buffer(
                     primitive
                         .attributes
@@ -236,6 +232,7 @@ pub fn new_load_gltf<P: AsRef<Path>>(path: P) -> Result<(SceneView, Vec<u8>), Er
     Ok((scene_view_out, buffer_out))
 }
 
+#[derive(Debug, Clone)]
 struct SuperTextureInfo<E: goth_gltf::Extensions> {
     pub index: usize,
     pub tex_coord: usize,
@@ -396,6 +393,32 @@ impl<'a, E: goth_gltf::Extensions> PrimitiveBufferReader<'a, E> {
     }
 }
 
+fn load_model_buffers<P: AsRef<Path>>(
+    gltf_info: &Gltf<default_extensions::Extensions>,
+    buffer_vec: &mut Vec<Vec<u8>>,
+    path: P,
+) -> Result<(), Error> {
+    for (index, buffer) in gltf_info.buffers.iter().enumerate() {
+        if buffer
+            .extensions
+            .ext_meshopt_compression
+            .as_ref()
+            .map(|ext| ext.fallback)
+            .unwrap_or(false)
+        {
+            continue;
+        }
+
+        match &buffer.uri {
+            Some(uri) => {
+                buffer_vec.insert(index, read_uri_data(uri, &path)?);
+            }
+            None => continue,
+        };
+    }
+    Ok(())
+}
+
 fn load_buffer_view_raw_data<'a, E: goth_gltf::Extensions>(
     gltf_info: &'a goth_gltf::Gltf<E>,
     accessor: &goth_gltf::Accessor,
@@ -505,184 +528,5 @@ fn read_uri_data(uri: &str, path: impl AsRef<Path>) -> Result<Vec<u8>, Error> {
         std::fs::read(&path).context(FileReadFailedSnafu {
             path: path.to_string_lossy(),
         })
-    }
-}
-
-//TODO deal with multiple node
-pub struct Mesh {
-    pub positions: Vec<[f32; 3]>,
-    pub normals: Vec<[f32; 3]>,
-    pub colors: Vec<[f32; 4]>,
-    pub uv0: Vec<[f32; 2]>,
-    pub tangents: Vec<[f32; 4]>,
-    pub indices: Vec<u32>,
-}
-
-pub fn load_gltf<P: AsRef<Path>>(path: P) -> std::result::Result<Mesh, Error> {
-    let gltf_bytes = std::fs::read(&path).context(FileReadFailedSnafu {
-        path: path.as_ref().to_string_lossy(),
-    })?;
-    let (gltf_info, embedded_buffer) =
-        Gltf::<default_extensions::Extensions>::from_bytes(&gltf_bytes)
-            .context(JsonDeSerFailedSnafu)?;
-    let mut buffer_map = new_buffer_map_with_embedded(embedded_buffer);
-    //Load external data;
-    let mut buffer_vec: Vec<Vec<u8>> = vec![];
-    load_model_buffers(&gltf_info, &mut buffer_vec, path)?;
-    insert_external_buffers(&buffer_vec, &mut buffer_map);
-
-    let mut positions = vec![];
-    let mut indices = vec![];
-    let mut uv0 = vec![];
-
-    let scene = gltf_info.scenes.get(0).context(DefaultSceneNotFoundSnafu)?;
-    for node_id in &scene.nodes {
-        let node: &goth_gltf::Node<default_extensions::Extensions> = &gltf_info.nodes[*node_id];
-        let mesh_id = match node.mesh {
-            Some(id) => id,
-            None => continue,
-        };
-        let transform = node_transform_to_matrix(&node.transform());
-        let mesh = &gltf_info.meshes[mesh_id];
-        for primitive in &mesh.primitives {
-            let pos_count = positions.len() as u32;
-
-            let primitive_reader = PrimitiveReader::new(&gltf_info, &buffer_map, primitive);
-            let position = primitive_reader
-                .get_positions()
-                .ok_or(Error::FailedToGetU8Data)?;
-
-            //TODO deal position in shader
-            for pos in position {
-                let n_pos = transform * Vec3::from_slice(&pos).extend(1.0);
-                positions.push(n_pos.truncate().to_array());
-            }
-
-            uv0.extend(primitive_reader.get_uv0().ok_or(Error::FailedToGetU8Data)?);
-
-            let mut index: Vec<u32> = primitive_reader
-                .get_index()
-                .ok_or(Error::FailedToGetU8Data)?;
-            index.iter_mut().for_each(|i: &mut u32| *i += pos_count);
-
-            indices.extend(index);
-
-            if let Some(mat_id) = primitive_reader.get_material_id() {
-                let material = &gltf_info.materials[mat_id];
-                let base_color_tex_info = &material
-                    .pbr_metallic_roughness
-                    .base_color_texture
-                    .as_ref()
-                    .unwrap();
-                let base_color_tex_id = base_color_tex_info.index;
-                let base_color_tex = &gltf_info.textures[base_color_tex_id];
-                let base_color_img_id = base_color_tex.source.unwrap();
-                let base_color_img = &gltf_info.images[base_color_img_id];
-            }
-        }
-    }
-
-    log::info!(
-        "positions: {}, uv0:{}, indices:{}",
-        positions.len(),
-        uv0.len(),
-        indices.len()
-    );
-
-    Ok(Mesh {
-        positions,
-        normals: vec![],
-        colors: vec![],
-        uv0,
-        tangents: vec![],
-        indices,
-    })
-}
-
-fn load_model_buffers<P: AsRef<Path>>(
-    gltf_info: &Gltf<default_extensions::Extensions>,
-    buffer_vec: &mut Vec<Vec<u8>>,
-    path: P,
-) -> Result<(), Error> {
-    for (index, buffer) in gltf_info.buffers.iter().enumerate() {
-        if buffer
-            .extensions
-            .ext_meshopt_compression
-            .as_ref()
-            .map(|ext| ext.fallback)
-            .unwrap_or(false)
-        {
-            continue;
-        }
-
-        match &buffer.uri {
-            Some(uri) => {
-                buffer_vec.insert(index, read_uri_data(uri, &path)?);
-            }
-            None => continue,
-        };
-    }
-    Ok(())
-}
-
-struct PrimitiveReader<'a, E: goth_gltf::Extensions> {
-    gltf_info: &'a goth_gltf::Gltf<E>,
-    buffer_map: &'a BTreeMap<usize, &'a [u8]>,
-    primitive: &'a Primitive,
-}
-
-impl<'a, E: goth_gltf::Extensions> PrimitiveReader<'a, E> {
-    fn new(
-        gltf_info: &'a goth_gltf::Gltf<E>,
-        buffer_map: &'a BTreeMap<usize, &'a [u8]>,
-        primitive: &'a Primitive,
-    ) -> Self {
-        Self {
-            gltf_info,
-            buffer_map,
-            primitive,
-        }
-    }
-
-    fn get_buffer_data_by_index(
-        &self,
-        id: usize,
-    ) -> Option<(&goth_gltf::Accessor, Option<usize>, &[u8])> {
-        let accessor = &self.gltf_info.accessors[id];
-        let buffer_view_id = accessor.buffer_view?;
-        let mut offset = accessor.byte_offset;
-
-        let buffer_view = &self.gltf_info.buffer_views[buffer_view_id];
-        offset += buffer_view.byte_offset;
-        let length = accessor
-            .byte_length(buffer_view)
-            .min(buffer_view.byte_length);
-        let stride = buffer_view.byte_stride;
-        let buffer_id = buffer_view.buffer;
-        let buffer = *self.buffer_map.get(&buffer_id)?;
-        let out_buffer = &buffer[offset..offset + length];
-        Some((accessor, stride, out_buffer))
-    }
-
-    fn get_positions(&self) -> Option<Vec<[f32; 3]>> {
-        let id = self.primitive.attributes.position?;
-        let (accessor, stride, slice) = self.get_buffer_data_by_index(id)?;
-        read_f32x3(slice, stride, accessor)
-    }
-
-    fn get_index(&self) -> Option<Vec<u32>> {
-        let id = self.primitive.indices?;
-        let (accessor, stride, slice) = self.get_buffer_data_by_index(id)?;
-        read_u32(slice, stride, accessor)
-    }
-
-    fn get_uv0(&self) -> Option<Vec<[f32; 2]>> {
-        let id = self.primitive.attributes.texcoord_0?;
-        let (accessor, stride, slice) = self.get_buffer_data_by_index(id)?;
-        read_f32x2(slice, stride, accessor)
-    }
-
-    fn get_material_id(&self) -> Option<usize> {
-        self.primitive.material
     }
 }

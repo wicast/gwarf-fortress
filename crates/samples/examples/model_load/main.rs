@@ -1,7 +1,7 @@
 use std::ops::Range;
 use std::time::Duration;
 
-use gf_base::asset::gltf::{load_gltf, new_load_gltf};
+use gf_base::asset::gltf::load_gltf;
 use gf_base::snafu::ErrorCompat;
 use gf_base::wgpu;
 use gf_base::{default_configs, downcast_mut, run, BaseState, StateDynObj};
@@ -101,7 +101,7 @@ fn init(base_state: &mut BaseState) {
     //     env!("CARGO_MANIFEST_DIR")
     // );
 
-    let (scene_view, scene_buffer) = match new_load_gltf(&path) {
+    let (scene_view, scene_buffer) = match load_gltf(&path) {
         Ok(scene) => scene,
         Err(e) => {
             eprintln!("An error occurred: {}", e);
@@ -112,28 +112,28 @@ fn init(base_state: &mut BaseState) {
         }
     };
 
-    let mesh = match load_gltf(&path) {
-        Ok(mesh) => mesh,
-        Err(e) => {
-            eprintln!("An error occurred: {}", e);
-            if let Some(bt) = ErrorCompat::backtrace(&e) {
-                eprintln!("{:?}", bt);
-            }
-            return;
-        }
-    };
+    // let mesh = match load_gltf(&path) {
+    //     Ok(mesh) => mesh,
+    //     Err(e) => {
+    //         eprintln!("An error occurred: {}", e);
+    //         if let Some(bt) = ErrorCompat::backtrace(&e) {
+    //             eprintln!("{:?}", bt);
+    //         }
+    //         return;
+    //     }
+    // };
 
-    let mut vertices = vec![];
-    for m in mesh.positions {
-        vertices.push(Vertex {
-            position: m,
-            color: [0.5, 0.0, 0.5],
-        })
-    }
-    let mut indices = vec![];
-    for i in mesh.indices {
-        indices.push(i);
-    }
+    let mut vertices: Vec<Vertex> = vec![];
+    // for m in mesh.positions {
+    //     vertices.push(Vertex {
+    //         position: m,
+    //         color: [0.5, 0.0, 0.5],
+    //     })
+    // }
+    let mut indices: Vec<u32> = vec![];
+    // for i in mesh.indices {
+    //     indices.push(i);
+    // }
     state.index_count = indices.len();
 
     state.render_pipeline = Some(render_pipeline);
@@ -218,7 +218,7 @@ fn test_gltf_loader() {
         env!("CARGO_MANIFEST_DIR")
     );
 
-    let (scene_view, scene_buffer) = match new_load_gltf(&path) {
+    let (scene_view, scene_buffer) = match load_gltf(&path) {
         Ok(scene) => scene,
         Err(e) => {
             eprintln!("An error occurred: {}", e);
@@ -246,7 +246,7 @@ fn test_gltf_loader() {
         env!("CARGO_MANIFEST_DIR")
     );
 
-    let (scene_view, scene_buffer) = match new_load_gltf(&path) {
+    let (scene_view, scene_buffer) = match load_gltf(&path) {
         Ok(scene) => scene,
         Err(e) => {
             eprintln!("An error occurred: {}", e);
@@ -273,11 +273,9 @@ fn test_gltf_loader() {
     let tex_info = scene_view.materials[0]
         .get(&gf_base::asset::gltf::MaterialKey::BaseColor)
         .unwrap();
-    println!(
-        "{:?}",
-        tex_info.mime
-    );
-    let img = gf_base::image::load_from_memory(&scene_buffer[tex_info.data_range.clone().unwrap()]).unwrap();
+    println!("{:?}", tex_info.mime);
+    let img = gf_base::image::load_from_memory(&scene_buffer[tex_info.data_range.clone().unwrap()])
+        .unwrap();
     // let path = format!(
     //     "{}/assets/gltf/simple_plane.gltf",
     //     std::env::current_dir().unwrap().display()
