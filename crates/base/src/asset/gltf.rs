@@ -113,6 +113,76 @@ pub struct TextureData {
     pub mime: String,
     pub tex_coord: usize,
     pub sampler: usize,
+    //TODO scale,etc
+}
+
+fn insert_node(
+    gltf_info: &Gltf<default_extensions::Extensions>,
+    node_id: &usize,
+    buffer_map: &BTreeMap<usize, &[u8]>,
+    scene_view_out: &mut SceneView,
+    buffer_out: &mut Vec<u8>,
+) -> Result<(), Error> {
+    let node: &goth_gltf::Node<default_extensions::Extensions> = &gltf_info.nodes[*node_id];
+    let mesh_id = match node.mesh {
+        Some(id) => id,
+        //TODO error?
+        None => return Ok(()),
+    };
+    let transform = node_transform_to_matrix(&node.transform()).to_cols_array();
+    let mesh = &gltf_info.meshes[mesh_id];
+
+    let mut meshes_out = Vec::new();
+    for primitive in &mesh.primitives {
+        let mut primitive_reader =
+            PrimitiveBufferReader::new(gltf_info, buffer_out, buffer_map);
+
+        let index_accessor =
+            &gltf_info.accessors[primitive.indices.context(NoIndexFoundSnafu { mesh_id })?];
+        let index = Index {
+            indices: primitive_reader
+                .get_raw_buffer(primitive.indices.context(NoIndexFoundSnafu { mesh_id })?)?,
+            r#type: index_accessor.component_type.try_into()?,
+        };
+        let mesh_out = Mesh {
+            positions: primitive_reader.get_raw_buffer(
+                primitive
+                    .attributes
+                    .position
+                    .context(NoPositionFoundSnafu { mesh_id })?,
+            )?,
+            normals: primitive
+                .attributes
+                .normal
+                .and_then(|normal| primitive_reader.get_raw_buffer(normal).ok()),
+            uv0: primitive
+                .attributes
+                .texcoord_0
+                .and_then(|texcoord| primitive_reader.get_raw_buffer(texcoord).ok()),
+            tangents: primitive
+                .attributes
+                .tangent
+                .and_then(|tangent| primitive_reader.get_raw_buffer(tangent).ok()),
+            index,
+            mode: primitive.mode,
+            mat: primitive.material,
+        };
+
+        meshes_out.push(mesh_out);
+    }
+
+    let node_out = Node {
+        transform,
+        meshes: meshes_out,
+        ..Default::default()
+    };
+    scene_view_out.nodes.insert(*node_id, node_out);
+
+    for children in &node.children {
+        insert_node(gltf_info, children, buffer_map, scene_view_out, buffer_out)?;
+    }
+
+    Ok(())
 }
 
 pub fn load_gltf<P: AsRef<Path>>(path: P) -> Result<(SceneView, Vec<u8>), Error> {
@@ -133,60 +203,7 @@ pub fn load_gltf<P: AsRef<Path>>(path: P) -> Result<(SceneView, Vec<u8>), Error>
     let mut scene_view_out = SceneView::default();
     let scene = gltf_info.scenes.get(0).context(DefaultSceneNotFoundSnafu)?;
     for node_id in &scene.nodes {
-        let node: &goth_gltf::Node<default_extensions::Extensions> = &gltf_info.nodes[*node_id];
-        //TODO node children
-        let mesh_id = match node.mesh {
-            Some(id) => id,
-            None => continue,
-        };
-        let transform = node_transform_to_matrix(&node.transform()).to_cols_array();
-        let mesh = &gltf_info.meshes[mesh_id];
-
-        let mut meshes_out = Vec::new();
-        for primitive in &mesh.primitives {
-            let mut primitive_reader =
-                PrimitiveBufferReader::new(&gltf_info, &mut buffer_out, &buffer_map);
-
-            let index_accessor =
-                &gltf_info.accessors[primitive.indices.context(NoIndexFoundSnafu { mesh_id })?];
-            let index = Index {
-                indices: primitive_reader
-                    .get_raw_buffer(primitive.indices.context(NoIndexFoundSnafu { mesh_id })?)?,
-                r#type: index_accessor.component_type.try_into()?,
-            };
-            let mesh_out = Mesh {
-                positions: primitive_reader.get_raw_buffer(
-                    primitive
-                        .attributes
-                        .position
-                        .context(NoPositionFoundSnafu { mesh_id })?,
-                )?,
-                normals: primitive
-                    .attributes
-                    .normal
-                    .and_then(|normal| primitive_reader.get_raw_buffer(normal).ok()),
-                uv0: primitive
-                    .attributes
-                    .texcoord_0
-                    .and_then(|texcoord| primitive_reader.get_raw_buffer(texcoord).ok()),
-                tangents: primitive
-                    .attributes
-                    .tangent
-                    .and_then(|tangent| primitive_reader.get_raw_buffer(tangent).ok()),
-                index,
-                mode: primitive.mode,
-                mat: primitive.material,
-            };
-
-            meshes_out.push(mesh_out);
-        }
-
-        let node_out = Node {
-            transform,
-            meshes: meshes_out,
-            ..Default::default()
-        };
-        scene_view_out.nodes.push(node_out);
+        insert_node(&gltf_info, node_id, &buffer_map, &mut scene_view_out, &mut buffer_out)?
     }
 
     let mut image_loader = ImageLoader::new(&gltf_info, &path, &buffer_map, &mut buffer_out);
