@@ -3,7 +3,9 @@ use std::{collections::BTreeMap, path::Path};
 
 use base64::{DecodeError, Engine};
 use glam::{Mat4, Quat, Vec3};
-use goth_gltf::{default_extensions, ComponentType, NormalTextureInfo, OcclusionTextureInfo};
+use goth_gltf::{
+    default_extensions, ComponentType, NormalTextureInfo, OcclusionTextureInfo, Sampler,
+};
 use goth_gltf::{Gltf, NodeTransform, PrimitiveMode, TextureInfo};
 use snafu::{Backtrace, OptionExt, ResultExt, Snafu};
 
@@ -39,7 +41,7 @@ pub struct SceneView {
     pub nodes: Vec<Node>,
     pub materials: Vec<Material>,
     //TODO
-    pub samplers: Vec<String>,
+    pub samplers: Vec<Sampler>,
 }
 
 #[derive(Debug, Default)]
@@ -114,139 +116,6 @@ pub struct TextureData {
     pub tex_coord: usize,
     pub sampler: usize,
     //TODO scale,etc
-}
-
-fn insert_node(
-    gltf_info: &Gltf<default_extensions::Extensions>,
-    node_id: &usize,
-    buffer_map: &BTreeMap<usize, &[u8]>,
-    scene_view_out: &mut SceneView,
-    buffer_out: &mut Vec<u8>,
-) -> Result<(), Error> {
-    let node: &goth_gltf::Node<default_extensions::Extensions> = &gltf_info.nodes[*node_id];
-    let mesh_id = match node.mesh {
-        Some(id) => id,
-        //TODO error?
-        None => return Ok(()),
-    };
-    let transform = node_transform_to_matrix(&node.transform()).to_cols_array();
-    let mesh = &gltf_info.meshes[mesh_id];
-
-    let mut meshes_out = Vec::new();
-    for primitive in &mesh.primitives {
-        let mut primitive_reader =
-            PrimitiveBufferReader::new(gltf_info, buffer_out, buffer_map);
-
-        let index_accessor =
-            &gltf_info.accessors[primitive.indices.context(NoIndexFoundSnafu { mesh_id })?];
-        let index = Index {
-            indices: primitive_reader
-                .get_raw_buffer(primitive.indices.context(NoIndexFoundSnafu { mesh_id })?)?,
-            r#type: index_accessor.component_type.try_into()?,
-        };
-        let mesh_out = Mesh {
-            positions: primitive_reader.get_raw_buffer(
-                primitive
-                    .attributes
-                    .position
-                    .context(NoPositionFoundSnafu { mesh_id })?,
-            )?,
-            normals: primitive
-                .attributes
-                .normal
-                .and_then(|normal| primitive_reader.get_raw_buffer(normal).ok()),
-            uv0: primitive
-                .attributes
-                .texcoord_0
-                .and_then(|texcoord| primitive_reader.get_raw_buffer(texcoord).ok()),
-            tangents: primitive
-                .attributes
-                .tangent
-                .and_then(|tangent| primitive_reader.get_raw_buffer(tangent).ok()),
-            index,
-            mode: primitive.mode,
-            mat: primitive.material,
-        };
-
-        meshes_out.push(mesh_out);
-    }
-
-    let node_out = Node {
-        transform,
-        meshes: meshes_out,
-        ..Default::default()
-    };
-    scene_view_out.nodes.insert(*node_id, node_out);
-
-    for children in &node.children {
-        insert_node(gltf_info, children, buffer_map, scene_view_out, buffer_out)?;
-    }
-
-    Ok(())
-}
-
-pub fn load_gltf<P: AsRef<Path>>(path: P) -> Result<(SceneView, Vec<u8>), Error> {
-    let gltf_bytes = std::fs::read(&path).context(FileReadFailedSnafu {
-        path: path.as_ref().to_string_lossy(),
-    })?;
-    let (gltf_info, embedded_buffer) =
-        Gltf::<default_extensions::Extensions>::from_bytes(&gltf_bytes)
-            .context(JsonDeSerFailedSnafu)?;
-    //Prepare buffer data
-    let mut buffer_map: BTreeMap<usize, &[u8]> = new_buffer_map_with_embedded(embedded_buffer);
-    let mut buffer_vec: Vec<Vec<u8>> = vec![];
-    load_model_buffers(&gltf_info, &mut buffer_vec, &path)?;
-    insert_external_buffers(&buffer_vec, &mut buffer_map);
-
-    let mut buffer_out = Vec::new();
-
-    let mut scene_view_out = SceneView::default();
-    let scene = gltf_info.scenes.get(0).context(DefaultSceneNotFoundSnafu)?;
-    for node_id in &scene.nodes {
-        insert_node(&gltf_info, node_id, &buffer_map, &mut scene_view_out, &mut buffer_out)?
-    }
-
-    let mut image_loader = ImageLoader::new(&gltf_info, &path, &buffer_map, &mut buffer_out);
-    image_loader.prepare_images()?;
-
-    for mat in &gltf_info.materials {
-        let mut mat_out = Material::new();
-        let pbr = &mat.pbr_metallic_roughness;
-        image_loader.load_texture(
-            &pbr.base_color_texture.as_ref().map(Into::into),
-            pbr.base_color_factor,
-            MaterialKey::BaseColor,
-            &mut mat_out,
-        )?;
-        image_loader.load_texture(
-            &pbr.metallic_roughness_texture.as_ref().map(Into::into),
-            [0., pbr.roughness_factor, pbr.metallic_factor, 0.],
-            MaterialKey::MetallicRoughness,
-            &mut mat_out,
-        )?;
-
-        if mat.normal_texture.is_some() {
-            image_loader.load_texture(
-                &mat.normal_texture.as_ref().map(Into::into),
-                Default::default(),
-                MaterialKey::Normal,
-                &mut mat_out,
-            )?;
-        }
-        if mat.occlusion_texture.is_some() {
-            image_loader.load_texture(
-                &mat.occlusion_texture.as_ref().map(Into::into),
-                Default::default(),
-                MaterialKey::Occlusion,
-                &mut mat_out,
-            )?;
-        }
-        //TODO emissive
-
-        scene_view_out.materials.push(mat_out)
-    }
-
-    Ok((scene_view_out, buffer_out))
 }
 
 #[derive(Debug, Clone)]
@@ -410,6 +279,110 @@ impl<'a, E: goth_gltf::Extensions> PrimitiveBufferReader<'a, E> {
     }
 }
 
+pub fn load_gltf<P: AsRef<Path>>(path: P) -> Result<(SceneView, Vec<u8>), Error> {
+    let gltf_bytes = std::fs::read(&path).context(FileReadFailedSnafu {
+        path: path.as_ref().to_string_lossy(),
+    })?;
+    let (gltf_info, embedded_buffer) =
+        Gltf::<default_extensions::Extensions>::from_bytes(&gltf_bytes)
+            .context(JsonDeSerFailedSnafu)?;
+    //Prepare buffer data
+    let mut buffer_map: BTreeMap<usize, &[u8]> = new_buffer_map_with_embedded(embedded_buffer);
+    let mut buffer_vec: Vec<Vec<u8>> = vec![];
+    load_model_buffers(&gltf_info, &mut buffer_vec, &path)?;
+    insert_external_buffers(&buffer_vec, &mut buffer_map);
+
+    let mut buffer_out = Vec::new();
+
+    let mut scene_view_out = SceneView::default();
+    let scene = gltf_info.scenes.get(0).context(DefaultSceneNotFoundSnafu)?;
+    for node_id in &scene.nodes {
+        insert_node(
+            &gltf_info,
+            node_id,
+            &buffer_map,
+            &mut scene_view_out,
+            &mut buffer_out,
+        )?
+    }
+
+    let mut image_loader = ImageLoader::new(&gltf_info, &path, &buffer_map, &mut buffer_out);
+    image_loader.prepare_images()?;
+
+    for mat in &gltf_info.materials {
+        let mut mat_out = Material::new();
+        let pbr = &mat.pbr_metallic_roughness;
+        image_loader.load_texture(
+            &pbr.base_color_texture.as_ref().map(Into::into),
+            pbr.base_color_factor,
+            MaterialKey::BaseColor,
+            &mut mat_out,
+        )?;
+        image_loader.load_texture(
+            &pbr.metallic_roughness_texture.as_ref().map(Into::into),
+            [0., pbr.roughness_factor, pbr.metallic_factor, 0.],
+            MaterialKey::MetallicRoughness,
+            &mut mat_out,
+        )?;
+
+        if mat.normal_texture.is_some() {
+            image_loader.load_texture(
+                &mat.normal_texture.as_ref().map(Into::into),
+                Default::default(),
+                MaterialKey::Normal,
+                &mut mat_out,
+            )?;
+        }
+        if mat.occlusion_texture.is_some() {
+            image_loader.load_texture(
+                &mat.occlusion_texture.as_ref().map(Into::into),
+                Default::default(),
+                MaterialKey::Occlusion,
+                &mut mat_out,
+            )?;
+        }
+        //TODO emissive
+
+        scene_view_out.materials.push(mat_out)
+    }
+
+    for sampler in &gltf_info.samplers {
+        scene_view_out.samplers.push(clone_sampler(sampler));
+    }
+
+    Ok((scene_view_out, buffer_out))
+}
+
+//TODO sampler is not clone
+pub fn clone_sampler(sampler: &Sampler) -> Sampler {
+    fn get_filter_mode(mode: &goth_gltf::FilterMode)-> goth_gltf::FilterMode {
+        match mode {
+            goth_gltf::FilterMode::Nearest => goth_gltf::FilterMode::Nearest,
+            goth_gltf::FilterMode::Linear => goth_gltf::FilterMode::Linear,
+        }
+    }
+
+    fn get_sample_wrap(wrap: &goth_gltf::SamplerWrap) -> goth_gltf::SamplerWrap {
+        match wrap {
+            goth_gltf::SamplerWrap::ClampToEdge => goth_gltf::SamplerWrap::ClampToEdge,
+            goth_gltf::SamplerWrap::MirroredRepeat => goth_gltf::SamplerWrap::ClampToEdge,
+            goth_gltf::SamplerWrap::Repeat => goth_gltf::SamplerWrap::ClampToEdge,
+        }
+    }
+
+    let mag_filter = sampler.mag_filter.as_ref().map(get_filter_mode);
+    let min_filter = sampler.min_filter.as_ref().map(|filter| goth_gltf::MinFilter {
+            mode: get_filter_mode(&filter.mode),
+            mipmap: filter.mipmap.as_ref().map(get_filter_mode),
+        });
+    Sampler {
+        mag_filter,
+        min_filter,
+        wrap_s: get_sample_wrap(&sampler.wrap_s),
+        wrap_t: get_sample_wrap(&sampler.wrap_t),
+    }
+}
+
 fn load_model_buffers<P: AsRef<Path>>(
     gltf_info: &Gltf<default_extensions::Extensions>,
     buffer_vec: &mut Vec<Vec<u8>>,
@@ -546,4 +519,72 @@ fn read_uri_data(uri: &str, path: impl AsRef<Path>) -> Result<Vec<u8>, Error> {
             path: path.to_string_lossy(),
         })
     }
+}
+
+fn insert_node(
+    gltf_info: &Gltf<default_extensions::Extensions>,
+    node_id: &usize,
+    buffer_map: &BTreeMap<usize, &[u8]>,
+    scene_view_out: &mut SceneView,
+    buffer_out: &mut Vec<u8>,
+) -> Result<(), Error> {
+    let node: &goth_gltf::Node<default_extensions::Extensions> = &gltf_info.nodes[*node_id];
+    let mesh_id = match node.mesh {
+        Some(id) => id,
+        //TODO error?
+        None => return Ok(()),
+    };
+    let transform = node_transform_to_matrix(&node.transform()).to_cols_array();
+    let mesh = &gltf_info.meshes[mesh_id];
+
+    let mut meshes_out = Vec::new();
+    for primitive in &mesh.primitives {
+        let mut primitive_reader = PrimitiveBufferReader::new(gltf_info, buffer_out, buffer_map);
+
+        let index_accessor =
+            &gltf_info.accessors[primitive.indices.context(NoIndexFoundSnafu { mesh_id })?];
+        let index = Index {
+            indices: primitive_reader
+                .get_raw_buffer(primitive.indices.context(NoIndexFoundSnafu { mesh_id })?)?,
+            r#type: index_accessor.component_type.try_into()?,
+        };
+        let mesh_out = Mesh {
+            positions: primitive_reader.get_raw_buffer(
+                primitive
+                    .attributes
+                    .position
+                    .context(NoPositionFoundSnafu { mesh_id })?,
+            )?,
+            normals: primitive
+                .attributes
+                .normal
+                .and_then(|normal| primitive_reader.get_raw_buffer(normal).ok()),
+            uv0: primitive
+                .attributes
+                .texcoord_0
+                .and_then(|texcoord| primitive_reader.get_raw_buffer(texcoord).ok()),
+            tangents: primitive
+                .attributes
+                .tangent
+                .and_then(|tangent| primitive_reader.get_raw_buffer(tangent).ok()),
+            index,
+            mode: primitive.mode,
+            mat: primitive.material,
+        };
+
+        meshes_out.push(mesh_out);
+    }
+
+    let node_out = Node {
+        transform,
+        meshes: meshes_out,
+        ..Default::default()
+    };
+    scene_view_out.nodes.insert(*node_id, node_out);
+
+    for children in &node.children {
+        insert_node(gltf_info, children, buffer_map, scene_view_out, buffer_out)?;
+    }
+
+    Ok(())
 }
