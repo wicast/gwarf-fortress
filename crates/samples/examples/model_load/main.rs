@@ -2,6 +2,7 @@ use std::ops::Range;
 use std::time::Duration;
 
 use gf_base::asset::gltf::load_gltf;
+use gf_base::glam::Vec4Swizzles;
 use gf_base::snafu::ErrorCompat;
 use gf_base::wgpu;
 use gf_base::{default_configs, downcast_mut, run, BaseState, StateDynObj};
@@ -96,10 +97,10 @@ fn init(base_state: &mut BaseState) {
     //     "{}/../../assets/gltf/simple_plane.gltf",
     //     env!("CARGO_MANIFEST_DIR")
     // );
-    // let path = format!(
-    //     "{}/../../assets/gltf/FlightHelmet/FlightHelmet.gltf",
-    //     env!("CARGO_MANIFEST_DIR")
-    // );
+    let path = format!(
+        "{}/../../assets/gltf/FlightHelmet/FlightHelmet.gltf",
+        env!("CARGO_MANIFEST_DIR")
+    );
 
     let (scene_view, scene_buffer) = match load_gltf(&path) {
         Ok(scene) => scene,
@@ -112,28 +113,19 @@ fn init(base_state: &mut BaseState) {
         }
     };
 
-    // let mesh = match load_gltf(&path) {
-    //     Ok(mesh) => mesh,
-    //     Err(e) => {
-    //         eprintln!("An error occurred: {}", e);
-    //         if let Some(bt) = ErrorCompat::backtrace(&e) {
-    //             eprintln!("{:?}", bt);
-    //         }
-    //         return;
-    //     }
-    // };
-
+    //TODO use indirect
     let mut vertices: Vec<Vertex> = vec![];
-    // for m in mesh.positions {
-    //     vertices.push(Vertex {
-    //         position: m,
-    //         color: [0.5, 0.0, 0.5],
-    //     })
-    // }
     let mut indices: Vec<u32> = vec![];
-    // for i in mesh.indices {
-    //     indices.push(i);
-    // }
+
+    for node in scene_view.nodes.iter().enumerate() {
+        load_node_into_vertex(
+            node.1,
+            &scene_buffer,
+            &mut vertices,
+            &mut indices,
+        );
+    }
+
     state.index_count = indices.len();
 
     state.render_pipeline = Some(render_pipeline);
@@ -151,8 +143,42 @@ fn init(base_state: &mut BaseState) {
     state.index = Some(index_buffer);
 }
 
+fn load_node_into_vertex(
+    node: &gf_base::asset::gltf::Node,
+    scene_buffer: &gf_base::asset::gltf::GLTFBuffer,
+    vertices: &mut Vec<Vertex>,
+    indices: &mut Vec<u32>,
+) {
+    for mesh in &node.meshes {
+        let ind = match mesh.index.r#type {
+            gf_base::asset::gltf::IndexType::U16 => {
+                let ind: Vec<[u16; 1]> =
+                    check_cast(&scene_buffer.index, mesh.index.indices.clone());
+                let ind: Vec<u32> = ind.iter().map(|i| i[0] as u32 + vertices.len() as u32).collect();
+                ind
+            }
+            gf_base::asset::gltf::IndexType::U32 => {
+                let ind: Vec<[u32; 1]> =
+                    check_cast(&scene_buffer.index, mesh.index.indices.clone());
+                let ind: Vec<u32> = ind.iter().map(|i| i[0] + vertices.len() as u32).collect();
+                ind
+            }
+        };
+        indices.extend(&ind);
+        let vec: Vec<[f32; 3]> = check_cast(&scene_buffer.positions, mesh.positions.clone());
+        for v in vec {
+            let p = node.per_node_info.transform
+                * gf_base::glam::Vec4::from((<gf_base::glam::Vec3>::from(v), 1.0));
+            vertices.push(Vertex {
+                position: p.xyz().to_array(),
+                color: [0.5, 0.0, 0.5],
+            })
+        }
+    }
+}
+
 fn render(base_state: &mut BaseState, _dt: Duration) -> Result<(), wgpu::SurfaceError> {
-    let output = base_state.surface.get_current_texture()?;
+    let output: wgpu::SurfaceTexture = base_state.surface.get_current_texture()?;
     let view = output
         .texture
         .create_view(&wgpu::TextureViewDescriptor::default());
@@ -229,27 +255,26 @@ fn test_gltf_loader() {
         }
     };
 
-    let positions: Vec<[f32; 3]> = check_buffer(
+    let positions: Vec<[f32; 3]> = check_cast(
         &scene_buffer.positions,
         scene_view.nodes[1].meshes[0].positions.clone(),
     );
 
     match scene_view.nodes[1].meshes[0].index.r#type {
         gf_base::asset::gltf::IndexType::U16 => {
-            let index: Vec<[u16; 1]> = check_buffer(
+            let index: Vec<[u16; 1]> = check_cast(
                 &scene_buffer.index,
                 scene_view.nodes[1].meshes[0].index.indices.clone(),
             );
         }
         gf_base::asset::gltf::IndexType::U32 => {
-            let index: Vec<[u32; 1]> = check_buffer(
+            let index: Vec<[u32; 1]> = check_cast(
                 &scene_buffer.index,
                 scene_view.nodes[1].meshes[0].index.indices.clone(),
             );
         }
     }
 
-    // println!("{:?}", index);
     println!("simple two mat 0: {:?}", scene_view.materials[0]);
 
     let path = format!(
@@ -268,19 +293,23 @@ fn test_gltf_loader() {
         }
     };
 
-    let positions: Vec<[f32; 3]> = check_buffer(
+    let positions: Vec<[f32; 3]> = check_cast(
+        &scene_buffer.positions,
+        scene_view.nodes[0].meshes[0].positions.clone(),
+    );
+    let positions: Vec<[f32; 3]> = check_cast(
         &scene_buffer.positions,
         scene_view.nodes[1].meshes[0].positions.clone(),
     );
-     match scene_view.nodes[1].meshes[0].index.r#type {
+    match scene_view.nodes[1].meshes[0].index.r#type {
         gf_base::asset::gltf::IndexType::U16 => {
-            let index: Vec<[u16; 1]> = check_buffer(
+            let index: Vec<[u16; 1]> = check_cast(
                 &scene_buffer.index,
                 scene_view.nodes[1].meshes[0].index.indices.clone(),
             );
         }
         gf_base::asset::gltf::IndexType::U32 => {
-            let index: Vec<[u32; 1]> = check_buffer(
+            let index: Vec<[u32; 1]> = check_cast(
                 &scene_buffer.index,
                 scene_view.nodes[1].meshes[0].index.indices.clone(),
             );
@@ -300,7 +329,6 @@ fn test_gltf_loader() {
     )
     .unwrap();
 
-
     // let path = format!(
     //     "{}/assets/gltf/simple_plane.gltf",
     //     std::env::current_dir().unwrap().display()
@@ -309,7 +337,7 @@ fn test_gltf_loader() {
     // img.save("test.jpg").unwrap();
 }
 
-fn check_buffer<T: Copy + bytemuck::Pod, const N: usize>(
+fn check_cast<T: Copy + bytemuck::Pod, const N: usize>(
     scene_buffer: &[u8],
     range: Range<usize>,
 ) -> Vec<[T; N]> {

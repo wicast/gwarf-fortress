@@ -21,6 +21,7 @@ pub use snafu;
 pub use wgpu;
 pub use winit;
 pub use image;
+pub use glam;
 
 type GetConfigFn = fn() -> (wgpu::Backends, wgpu::Features);
 type InitFn = fn(state: &mut BaseState) -> ();

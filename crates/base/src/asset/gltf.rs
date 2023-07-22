@@ -48,6 +48,7 @@ pub struct Node {
     pub name: Option<String>,
     pub meshes: Vec<Mesh>,
     pub per_node_info: PerNodeBufferStruct,
+    pub children: Vec<usize>,
 }
 
 #[derive(Debug, Default)]
@@ -290,7 +291,7 @@ pub struct GLTFBuffer {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct PerNodeBufferStruct {
-    transform: Mat4,
+    pub transform: Mat4,
 }
 
 pub fn load_gltf<P: AsRef<Path>>(path: P) -> Result<(SceneView, GLTFBuffer), Error> {
@@ -317,6 +318,7 @@ pub fn load_gltf<P: AsRef<Path>>(path: P) -> Result<(SceneView, GLTFBuffer), Err
             &buffer_map,
             &mut scene_view_out,
             &mut gltf_buffer_out,
+            &Node::default(),
         )?
     }
 
@@ -439,7 +441,7 @@ fn load_buffer_view_raw_data<E: goth_gltf::Extensions>(
     buffer_out: &mut Vec<u8>,
 ) -> Result<Range<usize>, Error> {
     let offset = accessor.byte_offset;
-    let type_size = accessor.component_type.byte_size();
+    let type_size = accessor.component_type.byte_size() * accessor.accessor_type.num_components();
 
     let buffer_view = &gltf_info.buffer_views[buffer_view_id];
     let length = accessor.byte_length(buffer_view);
@@ -473,17 +475,12 @@ fn get_raw_data_via_buffer_view<E: goth_gltf::Extensions>(
     let buffer = &buffer[offset..offset + length];
 
     let buffer = if let Some(stride) = stride {
+        let type_size = type_size.context(FailedGetBufferSnafu)?;
         buffer
-            .iter()
-            .enumerate()
-            .filter(|(index, _i)| {
-                if let Some(type_size) = type_size {
-                    (index % stride) < type_size
-                } else {
-                    true
-                }
-            })
-            .map(|i| *i.1)
+            .chunks(stride)
+            .map(|i| &i[0..type_size])
+            .flat_map(|i| i.iter())
+            .copied()
             .collect()
     } else {
         buffer.to_vec()
@@ -548,8 +545,8 @@ fn insert_node(
     node_id: &usize,
     buffer_map: &BTreeMap<usize, &[u8]>,
     scene_view_out: &mut SceneView,
-    // buffer_out: &mut Vec<u8>,
     gltf_buffer_out: &mut GLTFBuffer,
+    parent: &Node,
 ) -> Result<(), Error> {
     let node: &goth_gltf::Node<default_extensions::Extensions> = &gltf_info.nodes[*node_id];
     let mesh_id = match node.mesh {
@@ -604,12 +601,12 @@ fn insert_node(
         meshes_out.push(mesh_out);
     }
 
+    let transform = transform * parent.per_node_info.transform;
     let node_out = Node {
         per_node_info: PerNodeBufferStruct { transform },
         meshes: meshes_out,
         ..Default::default()
     };
-    scene_view_out.nodes.insert(*node_id, node_out);
 
     for children in &node.children {
         insert_node(
@@ -618,8 +615,11 @@ fn insert_node(
             buffer_map,
             scene_view_out,
             gltf_buffer_out,
+            &node_out,
         )?;
     }
+
+    scene_view_out.nodes.insert(*node_id, node_out);
 
     Ok(())
 }
