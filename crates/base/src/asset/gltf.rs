@@ -40,7 +40,6 @@ pub enum Error {
 pub struct SceneView {
     pub nodes: Vec<Node>,
     pub materials: Vec<Material>,
-    //TODO
     pub samplers: Vec<Sampler>,
 }
 
@@ -48,7 +47,7 @@ pub struct SceneView {
 pub struct Node {
     pub name: Option<String>,
     pub meshes: Vec<Mesh>,
-    pub transform: [f32; 16],
+    pub per_node_info: PerNodeBufferStruct,
 }
 
 #[derive(Debug, Default)]
@@ -242,24 +241,22 @@ impl<'a, E: goth_gltf::Extensions, P: AsRef<Path>> ImageLoader<'a, E, P> {
 
 struct PrimitiveBufferReader<'a, E: goth_gltf::Extensions> {
     gltf_info: &'a goth_gltf::Gltf<E>,
-    buffer_out: &'a mut Vec<u8>,
     buffer_map: &'a BTreeMap<usize, &'a [u8]>,
 }
 
 impl<'a, E: goth_gltf::Extensions> PrimitiveBufferReader<'a, E> {
-    fn new(
-        gltf_info: &'a goth_gltf::Gltf<E>,
-        buffer_out: &'a mut Vec<u8>,
-        buffer_map: &'a BTreeMap<usize, &'a [u8]>,
-    ) -> Self {
+    fn new(gltf_info: &'a goth_gltf::Gltf<E>, buffer_map: &'a BTreeMap<usize, &'a [u8]>) -> Self {
         Self {
             gltf_info,
-            buffer_out,
             buffer_map,
         }
     }
 
-    fn get_raw_buffer(&mut self, access_id: usize) -> Result<Range<usize>, Error> {
+    fn get_raw_buffer(
+        &mut self,
+        access_id: usize,
+        buffer_out: &mut Vec<u8>,
+    ) -> Result<Range<usize>, Error> {
         let accessor = self
             .gltf_info
             .accessors
@@ -272,14 +269,31 @@ impl<'a, E: goth_gltf::Extensions> PrimitiveBufferReader<'a, E> {
             accessor,
             buffer_view_id,
             self.buffer_map,
-            self.buffer_out,
+            buffer_out,
         )?;
 
         Ok(range)
     }
 }
 
-pub fn load_gltf<P: AsRef<Path>>(path: P) -> Result<(SceneView, Vec<u8>), Error> {
+#[derive(Debug, Default, Clone)]
+pub struct GLTFBuffer {
+    pub positions: Vec<u8>,
+    pub tangent: Vec<u8>,
+    pub normal: Vec<u8>,
+    pub texcoord: Vec<Vec<u8>>,
+    pub index: Vec<u8>,
+    pub per_node: Vec<PerNodeBufferStruct>,
+    pub shared_data: Vec<u8>,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PerNodeBufferStruct {
+    transform: Mat4,
+}
+
+pub fn load_gltf<P: AsRef<Path>>(path: P) -> Result<(SceneView, GLTFBuffer), Error> {
     let gltf_bytes = std::fs::read(&path).context(FileReadFailedSnafu {
         path: path.as_ref().to_string_lossy(),
     })?;
@@ -292,7 +306,7 @@ pub fn load_gltf<P: AsRef<Path>>(path: P) -> Result<(SceneView, Vec<u8>), Error>
     load_model_buffers(&gltf_info, &mut buffer_vec, &path)?;
     insert_external_buffers(&buffer_vec, &mut buffer_map);
 
-    let mut buffer_out = Vec::new();
+    let mut gltf_buffer_out = GLTFBuffer::default();
 
     let mut scene_view_out = SceneView::default();
     let scene = gltf_info.scenes.get(0).context(DefaultSceneNotFoundSnafu)?;
@@ -302,11 +316,16 @@ pub fn load_gltf<P: AsRef<Path>>(path: P) -> Result<(SceneView, Vec<u8>), Error>
             node_id,
             &buffer_map,
             &mut scene_view_out,
-            &mut buffer_out,
+            &mut gltf_buffer_out,
         )?
     }
 
-    let mut image_loader = ImageLoader::new(&gltf_info, &path, &buffer_map, &mut buffer_out);
+    let mut image_loader = ImageLoader::new(
+        &gltf_info,
+        &path,
+        &buffer_map,
+        &mut gltf_buffer_out.shared_data,
+    );
     image_loader.prepare_images()?;
 
     for mat in &gltf_info.materials {
@@ -350,12 +369,12 @@ pub fn load_gltf<P: AsRef<Path>>(path: P) -> Result<(SceneView, Vec<u8>), Error>
         scene_view_out.samplers.push(clone_sampler(sampler));
     }
 
-    Ok((scene_view_out, buffer_out))
+    Ok((scene_view_out, gltf_buffer_out))
 }
 
 //TODO sampler is not clone
 pub fn clone_sampler(sampler: &Sampler) -> Sampler {
-    fn get_filter_mode(mode: &goth_gltf::FilterMode)-> goth_gltf::FilterMode {
+    fn get_filter_mode(mode: &goth_gltf::FilterMode) -> goth_gltf::FilterMode {
         match mode {
             goth_gltf::FilterMode::Nearest => goth_gltf::FilterMode::Nearest,
             goth_gltf::FilterMode::Linear => goth_gltf::FilterMode::Linear,
@@ -371,7 +390,10 @@ pub fn clone_sampler(sampler: &Sampler) -> Sampler {
     }
 
     let mag_filter = sampler.mag_filter.as_ref().map(get_filter_mode);
-    let min_filter = sampler.min_filter.as_ref().map(|filter| goth_gltf::MinFilter {
+    let min_filter = sampler
+        .min_filter
+        .as_ref()
+        .map(|filter| goth_gltf::MinFilter {
             mode: get_filter_mode(&filter.mode),
             mipmap: filter.mipmap.as_ref().map(get_filter_mode),
         });
@@ -409,12 +431,12 @@ fn load_model_buffers<P: AsRef<Path>>(
     Ok(())
 }
 
-fn load_buffer_view_raw_data<'a, E: goth_gltf::Extensions>(
-    gltf_info: &'a goth_gltf::Gltf<E>,
+fn load_buffer_view_raw_data<E: goth_gltf::Extensions>(
+    gltf_info: &goth_gltf::Gltf<E>,
     accessor: &goth_gltf::Accessor,
     buffer_view_id: usize,
-    buffer_map: &BTreeMap<usize, &'a [u8]>,
-    buffer_out: &'a mut Vec<u8>,
+    buffer_map: &BTreeMap<usize, &[u8]>,
+    buffer_out: &mut Vec<u8>,
 ) -> Result<Range<usize>, Error> {
     let offset = accessor.byte_offset;
     let type_size = accessor.component_type.byte_size();
@@ -497,8 +519,8 @@ fn node_transform_to_matrix(n_transform: &NodeTransform) -> Mat4 {
             rotation,
             scale,
         } => {
-            let rot = Quat::from_array(*rotation);
             let m = Mat4::from_translation(Vec3::from_slice(translation));
+            let rot = Quat::from_array(*rotation);
             let m = Mat4::from_quat(rot) * m;
             Mat4::from_scale(Vec3::from_slice(scale)) * m
         }
@@ -526,7 +548,8 @@ fn insert_node(
     node_id: &usize,
     buffer_map: &BTreeMap<usize, &[u8]>,
     scene_view_out: &mut SceneView,
-    buffer_out: &mut Vec<u8>,
+    // buffer_out: &mut Vec<u8>,
+    gltf_buffer_out: &mut GLTFBuffer,
 ) -> Result<(), Error> {
     let node: &goth_gltf::Node<default_extensions::Extensions> = &gltf_info.nodes[*node_id];
     let mesh_id = match node.mesh {
@@ -534,18 +557,20 @@ fn insert_node(
         //TODO error?
         None => return Ok(()),
     };
-    let transform = node_transform_to_matrix(&node.transform()).to_cols_array();
+    let transform = node_transform_to_matrix(&node.transform());
     let mesh = &gltf_info.meshes[mesh_id];
 
     let mut meshes_out = Vec::new();
     for primitive in &mesh.primitives {
-        let mut primitive_reader = PrimitiveBufferReader::new(gltf_info, buffer_out, buffer_map);
+        let mut primitive_reader = PrimitiveBufferReader::new(gltf_info, buffer_map);
 
         let index_accessor =
             &gltf_info.accessors[primitive.indices.context(NoIndexFoundSnafu { mesh_id })?];
         let index = Index {
-            indices: primitive_reader
-                .get_raw_buffer(primitive.indices.context(NoIndexFoundSnafu { mesh_id })?)?,
+            indices: primitive_reader.get_raw_buffer(
+                primitive.indices.context(NoIndexFoundSnafu { mesh_id })?,
+                &mut gltf_buffer_out.index,
+            )?,
             r#type: index_accessor.component_type.try_into()?,
         };
         let mesh_out = Mesh {
@@ -554,19 +579,23 @@ fn insert_node(
                     .attributes
                     .position
                     .context(NoPositionFoundSnafu { mesh_id })?,
+                &mut gltf_buffer_out.positions,
             )?,
-            normals: primitive
-                .attributes
-                .normal
-                .and_then(|normal| primitive_reader.get_raw_buffer(normal).ok()),
-            uv0: primitive
-                .attributes
-                .texcoord_0
-                .and_then(|texcoord| primitive_reader.get_raw_buffer(texcoord).ok()),
-            tangents: primitive
-                .attributes
-                .tangent
-                .and_then(|tangent| primitive_reader.get_raw_buffer(tangent).ok()),
+            normals: primitive.attributes.normal.and_then(|normal| {
+                primitive_reader
+                    .get_raw_buffer(normal, &mut gltf_buffer_out.normal)
+                    .ok()
+            }),
+            uv0: primitive.attributes.texcoord_0.and_then(|texcoord| {
+                gltf_buffer_out.texcoord.resize(1, Default::default());
+                let tex_buffer = gltf_buffer_out.texcoord.get_mut(0)?;
+                primitive_reader.get_raw_buffer(texcoord, tex_buffer).ok()
+            }),
+            tangents: primitive.attributes.tangent.and_then(|tangent| {
+                primitive_reader
+                    .get_raw_buffer(tangent, &mut gltf_buffer_out.tangent)
+                    .ok()
+            }),
             index,
             mode: primitive.mode,
             mat: primitive.material,
@@ -576,14 +605,20 @@ fn insert_node(
     }
 
     let node_out = Node {
-        transform,
+        per_node_info: PerNodeBufferStruct { transform },
         meshes: meshes_out,
         ..Default::default()
     };
     scene_view_out.nodes.insert(*node_id, node_out);
 
     for children in &node.children {
-        insert_node(gltf_info, children, buffer_map, scene_view_out, buffer_out)?;
+        insert_node(
+            gltf_info,
+            children,
+            buffer_map,
+            scene_view_out,
+            gltf_buffer_out,
+        )?;
     }
 
     Ok(())

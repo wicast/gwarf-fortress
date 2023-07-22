@@ -230,13 +230,24 @@ fn test_gltf_loader() {
     };
 
     let positions: Vec<[f32; 3]> = check_buffer(
-        &scene_buffer,
+        &scene_buffer.positions,
         scene_view.nodes[1].meshes[0].positions.clone(),
     );
-    let index: Vec<[u16; 1]> = check_buffer(
-        &scene_buffer,
-        scene_view.nodes[1].meshes[0].index.indices.clone(),
-    );
+
+    match scene_view.nodes[1].meshes[0].index.r#type {
+        gf_base::asset::gltf::IndexType::U16 => {
+            let index: Vec<[u16; 1]> = check_buffer(
+                &scene_buffer.index,
+                scene_view.nodes[1].meshes[0].index.indices.clone(),
+            );
+        }
+        gf_base::asset::gltf::IndexType::U32 => {
+            let index: Vec<[u32; 1]> = check_buffer(
+                &scene_buffer.index,
+                scene_view.nodes[1].meshes[0].index.indices.clone(),
+            );
+        }
+    }
 
     // println!("{:?}", index);
     println!("simple two mat 0: {:?}", scene_view.materials[0]);
@@ -258,13 +269,23 @@ fn test_gltf_loader() {
     };
 
     let positions: Vec<[f32; 3]> = check_buffer(
-        &scene_buffer,
+        &scene_buffer.positions,
         scene_view.nodes[1].meshes[0].positions.clone(),
     );
-    let index: Vec<[u16; 1]> = check_buffer(
-        &scene_buffer,
-        scene_view.nodes[1].meshes[0].index.indices.clone(),
-    );
+     match scene_view.nodes[1].meshes[0].index.r#type {
+        gf_base::asset::gltf::IndexType::U16 => {
+            let index: Vec<[u16; 1]> = check_buffer(
+                &scene_buffer.index,
+                scene_view.nodes[1].meshes[0].index.indices.clone(),
+            );
+        }
+        gf_base::asset::gltf::IndexType::U32 => {
+            let index: Vec<[u32; 1]> = check_buffer(
+                &scene_buffer.index,
+                scene_view.nodes[1].meshes[0].index.indices.clone(),
+            );
+        }
+    }
 
     // println!("{:?}", positions);
 
@@ -274,8 +295,12 @@ fn test_gltf_loader() {
         .get(&gf_base::asset::gltf::MaterialKey::BaseColor)
         .unwrap();
     println!("{:?}", tex_info.mime);
-    let img = gf_base::image::load_from_memory(&scene_buffer[tex_info.data_range.clone().unwrap()])
-        .unwrap();
+    let img = gf_base::image::load_from_memory(
+        &scene_buffer.shared_data[tex_info.data_range.clone().unwrap()],
+    )
+    .unwrap();
+
+
     // let path = format!(
     //     "{}/assets/gltf/simple_plane.gltf",
     //     std::env::current_dir().unwrap().display()
