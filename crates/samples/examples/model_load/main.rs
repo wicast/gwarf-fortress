@@ -2,10 +2,10 @@ use std::ops::Range;
 use std::time::Duration;
 
 use gf_base::asset::gltf::load_gltf;
-use gf_base::glam::Vec4Swizzles;
 use gf_base::snafu::ErrorCompat;
 use gf_base::wgpu;
-use gf_base::{default_configs, downcast_mut, run, BaseState, StateDynObj};
+use gf_base::wgpu::util::{BufferInitDescriptor, DrawIndexedIndirect};
+use gf_base::{downcast_mut, run, BaseState, StateDynObj};
 
 use wgpu::util::DeviceExt;
 
@@ -14,36 +14,108 @@ struct State {
     render_pipeline: Option<wgpu::RenderPipeline>,
     vertices: Option<wgpu::Buffer>,
     index: Option<wgpu::Buffer>,
-    index_count: usize,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct Vertex {
-    position: [f32; 3],
-    color: [f32; 3],
-}
-
-impl Vertex {
-    const ATTRIBS: [wgpu::VertexAttribute; 2] =
-        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3];
-
-    fn desc() -> wgpu::VertexBufferLayout<'static> {
-        use std::mem;
-
-        wgpu::VertexBufferLayout {
-            array_stride: mem::size_of::<Self>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &Self::ATTRIBS,
-        }
-    }
+    obj_count: usize,
+    obj_buf: Option<wgpu::Buffer>,
+    indirect_buf: Option<wgpu::Buffer>,
 }
 
 impl StateDynObj for State {}
 
 fn init(base_state: &mut BaseState) {
     let device = &base_state.device;
-    let mut state = downcast_mut::<State>(&mut base_state.extra_state).unwrap();
+    let state = downcast_mut::<State>(&mut base_state.extra_state).unwrap();
+
+    let path = format!(
+        "{}/../../assets/gltf/simple_two.glb",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    // let path = format!(
+    //     "{}/../../assets/gltf/simple_plane.gltf",
+    //     env!("CARGO_MANIFEST_DIR")
+    // );
+    let path = format!(
+        "{}/../../assets/gltf/FlightHelmet/FlightHelmet.gltf",
+        env!("CARGO_MANIFEST_DIR")
+    );
+
+    let (scene_view, scene_buffer) = match load_gltf(&path) {
+        Ok(scene) => scene,
+        Err(e) => {
+            eprintln!("An error occurred: {}", e);
+            if let Some(bt) = ErrorCompat::backtrace(&e) {
+                eprintln!("{:?}", bt);
+            }
+            return;
+        }
+    };
+
+    let vert_buf = device.create_buffer_init(&BufferInitDescriptor {
+        label: None,
+        contents: &scene_buffer.positions,
+        usage: wgpu::BufferUsages::VERTEX,
+    });
+    let index_buf = device.create_buffer_init(&BufferInitDescriptor {
+        label: None,
+        contents: &scene_buffer.index,
+        usage: wgpu::BufferUsages::INDEX,
+    });
+    let obj_buf = device.create_buffer_init(&BufferInitDescriptor {
+        label: None,
+        contents: bytemuck::cast_slice(&scene_buffer.per_node),
+        usage: wgpu::BufferUsages::VERTEX,
+    });
+
+    let mut indirect = Vec::new();
+
+    let mut obj_count = 0;
+    for node in &scene_view.nodes {
+        for mesh in &node.meshes {
+            println!("mesh.index.type_size:{}", mesh.index.type_size);
+            indirect.push(DrawIndexedIndirect {
+                vertex_count: mesh.index.count as u32,
+                instance_count: 1,
+                base_index: (mesh.index.indices.start / mesh.index.type_size) as u32,
+                vertex_offset: (mesh.positions.start / mesh.vertex_size) as i32,
+                base_instance: obj_count,
+            });
+            obj_count += 1;
+        }
+    }
+    state.obj_count = obj_count as usize;
+
+    let indirect: Vec<u8> = indirect
+        .iter()
+        .map(|i| i.as_bytes())
+        .flat_map(|i| i.iter())
+        .copied()
+        .collect();
+
+    let indirect_buf = device.create_buffer_init(&BufferInitDescriptor {
+        label: None,
+        contents: &indirect,
+        usage: wgpu::BufferUsages::INDIRECT,
+    });
+
+    let vertex_layout = wgpu::VertexBufferLayout {
+        //TODO calc stride
+        array_stride: 3 * 4,
+        step_mode: wgpu::VertexStepMode::Vertex,
+        attributes: &wgpu::vertex_attr_array![
+            0 => Float32x3,
+        ],
+    };
+
+    let object_layout = wgpu::VertexBufferLayout {
+        //TODO calc stride
+        array_stride: 4 * 4 * 4,
+        step_mode: wgpu::VertexStepMode::Instance,
+        attributes: &wgpu::vertex_attr_array![
+            1 => Float32x4,
+            2 => Float32x4,
+            3 => Float32x4,
+            4 => Float32x4,
+        ],
+    };
 
     let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
 
@@ -59,7 +131,7 @@ fn init(base_state: &mut BaseState) {
         vertex: wgpu::VertexState {
             module: &shader,
             entry_point: "vs_main",
-            buffers: &[Vertex::desc()],
+            buffers: &[vertex_layout, object_layout],
         },
         primitive: wgpu::PrimitiveState {
             topology: wgpu::PrimitiveTopology::TriangleList,
@@ -89,92 +161,12 @@ fn init(base_state: &mut BaseState) {
         multiview: None,
     });
 
-    let path = format!(
-        "{}/../../assets/gltf/simple_two.glb",
-        env!("CARGO_MANIFEST_DIR")
-    );
-    // let path = format!(
-    //     "{}/../../assets/gltf/simple_plane.gltf",
-    //     env!("CARGO_MANIFEST_DIR")
-    // );
-    let path = format!(
-        "{}/../../assets/gltf/FlightHelmet/FlightHelmet.gltf",
-        env!("CARGO_MANIFEST_DIR")
-    );
-
-    let (scene_view, scene_buffer) = match load_gltf(&path) {
-        Ok(scene) => scene,
-        Err(e) => {
-            eprintln!("An error occurred: {}", e);
-            if let Some(bt) = ErrorCompat::backtrace(&e) {
-                eprintln!("{:?}", bt);
-            }
-            return;
-        }
-    };
-
-    //TODO use indirect
-    let mut vertices: Vec<Vertex> = vec![];
-    let mut indices: Vec<u32> = vec![];
-
-    for node in scene_view.nodes.iter().enumerate() {
-        load_node_into_vertex(
-            node.1,
-            &scene_buffer,
-            &mut vertices,
-            &mut indices,
-        );
-    }
-
-    state.index_count = indices.len();
-
     state.render_pipeline = Some(render_pipeline);
-    let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("Vertex Buffer"),
-        contents: bytemuck::cast_slice(vertices.as_slice()),
-        usage: wgpu::BufferUsages::VERTEX,
-    });
-    let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("Index Buffer"),
-        contents: bytemuck::cast_slice(indices.as_slice()),
-        usage: wgpu::BufferUsages::INDEX,
-    });
-    state.vertices = Some(vertex_buffer);
-    state.index = Some(index_buffer);
-}
 
-fn load_node_into_vertex(
-    node: &gf_base::asset::gltf::Node,
-    scene_buffer: &gf_base::asset::gltf::GLTFBuffer,
-    vertices: &mut Vec<Vertex>,
-    indices: &mut Vec<u32>,
-) {
-    for mesh in &node.meshes {
-        let ind = match mesh.index.r#type {
-            gf_base::asset::gltf::IndexType::U16 => {
-                let ind: Vec<[u16; 1]> =
-                    check_cast(&scene_buffer.index, mesh.index.indices.clone());
-                let ind: Vec<u32> = ind.iter().map(|i| i[0] as u32 + vertices.len() as u32).collect();
-                ind
-            }
-            gf_base::asset::gltf::IndexType::U32 => {
-                let ind: Vec<[u32; 1]> =
-                    check_cast(&scene_buffer.index, mesh.index.indices.clone());
-                let ind: Vec<u32> = ind.iter().map(|i| i[0] + vertices.len() as u32).collect();
-                ind
-            }
-        };
-        indices.extend(&ind);
-        let vec: Vec<[f32; 3]> = check_cast(&scene_buffer.positions, mesh.positions.clone());
-        for v in vec {
-            let p = node.per_node_info.transform
-                * gf_base::glam::Vec4::from((<gf_base::glam::Vec3>::from(v), 1.0));
-            vertices.push(Vertex {
-                position: p.xyz().to_array(),
-                color: [0.5, 0.0, 0.5],
-            })
-        }
-    }
+    state.vertices = Some(vert_buf);
+    state.index = Some(index_buf);
+    state.obj_buf = Some(obj_buf);
+    state.indirect_buf = Some(indirect_buf);
 }
 
 fn render(base_state: &mut BaseState, _dt: Duration) -> Result<(), wgpu::SurfaceError> {
@@ -213,11 +205,16 @@ fn render(base_state: &mut BaseState, _dt: Duration) -> Result<(), wgpu::Surface
         render_pass.set_pipeline(pipeline);
         render_pass.set_bind_group(0, &base_state.camera_bind_group, &[]);
         render_pass.set_vertex_buffer(0, state.vertices.as_ref().unwrap().slice(..));
+        render_pass.set_vertex_buffer(1, state.obj_buf.as_ref().unwrap().slice(..));
         render_pass.set_index_buffer(
             state.index.as_ref().unwrap().slice(..),
-            wgpu::IndexFormat::Uint32,
+            wgpu::IndexFormat::Uint16,
         );
-        render_pass.draw_indexed(0..state.index_count as u32, 0, 0..1);
+        render_pass.multi_draw_indexed_indirect(
+            state.indirect_buf.as_ref().unwrap(),
+            0,
+            state.obj_count as u32,
+        );
     }
 
     // submit will accept anything that implements IntoIter
@@ -230,7 +227,12 @@ fn render(base_state: &mut BaseState, _dt: Duration) -> Result<(), wgpu::Surface
 fn main() {
     pollster::block_on(run(
         Box::<State>::default(),
-        default_configs,
+        || {
+            (
+                wgpu::Backends::all(),
+                wgpu::Features::MULTI_DRAW_INDIRECT | wgpu::Features::INDIRECT_FIRST_INSTANCE,
+            )
+        },
         init,
         |_state, _dt| {},
         render,
