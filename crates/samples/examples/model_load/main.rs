@@ -135,7 +135,6 @@ fn init(base_state: &mut BaseState) {
         usage: wgpu::BufferUsages::VERTEX,
     });
 
-    //TODO tex all in one
     let mut texture_view_vec = vec![];
     for img_info in &scene_view.images {
         let color_source_data = &scene_buffer.shared_data[img_info.range.clone()];
@@ -265,7 +264,6 @@ fn init(base_state: &mut BaseState) {
     });
 
     let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
-    let frag_shader = device.create_shader_module(wgpu::include_wgsl!("indirect_frag.wgsl"));
 
     let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Render Pipeline Layout"),
@@ -303,7 +301,7 @@ fn init(base_state: &mut BaseState) {
             alpha_to_coverage_enabled: false,
         },
         fragment: Some(wgpu::FragmentState {
-            module: &frag_shader,
+            module: &shader,
             entry_point: "fs_main",
             targets: &[Some(wgpu::ColorTargetState {
                 // 4.

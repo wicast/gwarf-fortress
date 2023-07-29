@@ -50,7 +50,19 @@ fn vs_main(
 
 // Fragment shader
 
+@group(1) @binding(0)
+var base_color_texes: binding_array<texture_2d<f32>>;
+
+@group(1) @binding(1)
+var samplers: binding_array<sampler>;
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    return vec4<f32>(0.4, 0.23, 0.2, 1.0);
+    let out_color = textureSampleLevel(
+        base_color_texes[in.base_color],
+        samplers[in.base_color_sampler],
+        in.uv0,
+        0.0
+    ).rgb;
+    return vec4<f32>(out_color, 1.0);
 }
