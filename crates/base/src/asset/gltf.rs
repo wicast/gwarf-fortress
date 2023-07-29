@@ -43,6 +43,22 @@ pub struct SceneView {
     pub samplers: Vec<Sampler>,
 }
 
+#[derive(Debug, Default, Clone)]
+pub struct GLTFBuffer {
+    pub positions: Vec<u8>,
+    pub tangent: Vec<u8>,
+    pub normal: Vec<u8>,
+    pub texcoord: Vec<Vec<u8>>,
+    pub index: Vec<u8>,
+    pub shared_data: Vec<u8>,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PerNodeBuffer {
+    pub transform: Mat4,
+}
+
 #[derive(Debug, Default)]
 pub struct Node {
     pub id: usize,
@@ -54,6 +70,7 @@ pub struct Node {
 
 #[derive(Debug, Default)]
 pub struct Mesh {
+    pub id: usize,
     pub vertex_count: usize,
     pub vertex_size: usize,
     pub positions: Range<usize>,
@@ -115,6 +132,7 @@ pub enum MaterialKey {
 
 #[derive(Debug, Default)]
 pub struct TextureData {
+    pub id: usize,
     pub data_range: Option<Range<usize>>,
     pub factor: [f32; 4],
     pub mime: String,
@@ -200,6 +218,7 @@ impl<'a, E: goth_gltf::Extensions, P: AsRef<Path>> ImageLoader<'a, E, P> {
     ) -> Result<(), Error> {
         let tex_data = if let Some(texture_info) = texture_info {
             let texture = &self.gltf_info.textures[texture_info.index];
+            //TODO error
             let image_id = texture.source.unwrap();
             let image = &self.gltf_info.images[image_id];
             let data = self
@@ -207,14 +226,15 @@ impl<'a, E: goth_gltf::Extensions, P: AsRef<Path>> ImageLoader<'a, E, P> {
                 .get(&image_id)
                 .context(FailedGetBufferSnafu)?;
 
-            let base_color_tex_data = TextureData {
+            let tex_data = TextureData {
+                id: image_id,
                 data_range: Some(data.clone()),
                 factor: color_factor,
                 mime: image.mime_type.clone().unwrap_or("image/png".to_string()),
                 tex_coord: texture_info.tex_coord,
                 sampler: texture.sampler.unwrap(),
             };
-            Ok(base_color_tex_data)
+            Ok(tex_data)
         } else {
             Ok(TextureData {
                 data_range: None,
@@ -271,13 +291,8 @@ impl<'a, E: goth_gltf::Extensions> PrimitiveBufferReader<'a, E> {
 
         let buffer_view_id = accessor.buffer_view.context(FailedGetBufferSnafu)?;
         let buffer_view = &self.gltf_info.buffer_views[buffer_view_id];
-        let range: Range<usize> = load_buffer_view_raw_data(
-            self.gltf_info,
-            accessor,
-            buffer_view,
-            self.buffer_map,
-            buffer_out,
-        )?;
+        let range: Range<usize> =
+            load_buffer_view_raw_data(accessor, buffer_view, self.buffer_map, buffer_out)?;
 
         Ok((
             range,
@@ -285,23 +300,6 @@ impl<'a, E: goth_gltf::Extensions> PrimitiveBufferReader<'a, E> {
             accessor.component_type.byte_size() * accessor.accessor_type.num_components(),
         ))
     }
-}
-
-#[derive(Debug, Default, Clone)]
-pub struct GLTFBuffer {
-    pub positions: Vec<u8>,
-    pub tangent: Vec<u8>,
-    pub normal: Vec<u8>,
-    pub texcoord: Vec<Vec<u8>>,
-    pub index: Vec<u8>,
-    pub per_node: Vec<PerNodeBuffer>,
-    pub shared_data: Vec<u8>,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct PerNodeBuffer {
-    pub transform: Mat4,
 }
 
 pub fn load_gltf<P: AsRef<Path>>(path: P) -> Result<(SceneView, GLTFBuffer), Error> {
@@ -331,11 +329,6 @@ pub fn load_gltf<P: AsRef<Path>>(path: P) -> Result<(SceneView, GLTFBuffer), Err
             &Node::default(),
         )?
     }
-    let mut per_obj_vec = Vec::new();
-    for node in &scene_view_out.nodes {
-        per_obj_vec.insert(node.id, node.per_node_info);
-    }
-    gltf_buffer_out.per_node = per_obj_vec;
 
     let mut image_loader = ImageLoader::new(
         &gltf_info,
@@ -345,6 +338,7 @@ pub fn load_gltf<P: AsRef<Path>>(path: P) -> Result<(SceneView, GLTFBuffer), Err
     );
     image_loader.prepare_images()?;
 
+    //TODO change to textures
     for mat in &gltf_info.materials {
         let mut mat_out = Material::new();
         let pbr = &mat.pbr_metallic_roughness;
@@ -450,7 +444,6 @@ fn load_model_buffers<P: AsRef<Path>>(
 }
 
 fn load_buffer_view_raw_data<E: goth_gltf::Extensions>(
-    gltf_info: &goth_gltf::Gltf<E>,
     accessor: &goth_gltf::Accessor,
     buffer_view: &goth_gltf::BufferView<E>,
     buffer_map: &BTreeMap<usize, &[u8]>,
@@ -596,6 +589,7 @@ fn insert_node(
             &mut gltf_buffer_out.positions,
         )?;
         let mesh_out = Mesh {
+            id: mesh_id,
             vertex_count: positions.1,
             vertex_size: positions.2,
             positions: positions.0,

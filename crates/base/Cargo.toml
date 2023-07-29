@@ -8,10 +8,10 @@ resolver = "2"
 winit = "0.28.6"
 env_logger = "0.10"
 log = "0.4"
-wgpu = "0.16.1"
+wgpu = "0.16"
 as-any = "0.3.0"
 bytemuck = { version = "1.13.1", features = ["derive"] }
-goth-gltf = {git = "https://github.com/wicast/goth-gltf.git", branch = "name_field"}
+goth-gltf = {git = "https://github.com/wicast/goth-gltf.git", branch = "sampler_modify", features = ["wgpu_types"]}
 snafu = { version = "0.7.4", features = ["backtraces"] }
 base64 = "0.21.0"
 glam = { version = "0.24", features = ["bytemuck"] }

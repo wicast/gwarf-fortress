@@ -38,6 +38,9 @@ pub fn downcast_mut<OT: 'static>(state: &mut Box<dyn StateDynObj>) -> Option<&mu
     state.as_mut().downcast_mut::<OT>()
 }
 
+//TODO
+pub struct Error {}
+
 pub struct BaseState {
     pub surface: wgpu::Surface,
     pub device: wgpu::Device,
