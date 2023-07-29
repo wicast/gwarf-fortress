@@ -33,7 +33,7 @@ struct State {
 
 impl StateDynObj for State {}
 
-#[repr(C, packed)]
+#[repr(C, align(4))]
 #[derive(Copy, Clone, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
 struct PerObjData {
     node: PerNodeBuffer,
