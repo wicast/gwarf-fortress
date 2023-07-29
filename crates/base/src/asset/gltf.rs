@@ -40,6 +40,7 @@ pub enum Error {
 pub struct SceneView {
     pub nodes: Vec<Node>,
     pub materials: Vec<Material>,
+    pub images: Vec<ImageData>,
     pub samplers: Vec<Sampler>,
 }
 
@@ -131,11 +132,15 @@ pub enum MaterialKey {
 }
 
 #[derive(Debug, Default)]
-pub struct TextureData {
-    pub id: usize,
-    pub data_range: Option<Range<usize>>,
-    pub factor: [f32; 4],
+pub struct ImageData {
+    pub range: Range<usize>,
     pub mime: String,
+}
+
+#[derive(Debug, Default)]
+pub struct TextureData {
+    pub image_id: Option<usize>,
+    pub factor: [f32; 4],
     pub tex_coord: usize,
     pub sampler: usize,
     //TODO scale,etc
@@ -191,7 +196,8 @@ struct ImageLoader<'a, E: goth_gltf::Extensions, P: AsRef<Path>> {
     path: &'a P,
     buffer_map: &'a BTreeMap<usize, &'a [u8]>,
     buffer_out: &'a mut Vec<u8>,
-    mat_range_map: BTreeMap<usize, Range<usize>>,
+    image_out: &'a mut Vec<ImageData>,
+    // tex_range_map: BTreeMap<usize, Range<usize>>,
 }
 impl<'a, E: goth_gltf::Extensions, P: AsRef<Path>> ImageLoader<'a, E, P> {
     fn new(
@@ -199,13 +205,14 @@ impl<'a, E: goth_gltf::Extensions, P: AsRef<Path>> ImageLoader<'a, E, P> {
         path: &'a P,
         buffer_map: &'a BTreeMap<usize, &'a [u8]>,
         buffer_out: &'a mut Vec<u8>,
+        image_out: &'a mut Vec<ImageData>,
     ) -> Self {
         Self {
             gltf_info,
             path,
             buffer_map,
             buffer_out,
-            mat_range_map: BTreeMap::new(),
+            image_out,
         }
     }
 
@@ -219,36 +226,25 @@ impl<'a, E: goth_gltf::Extensions, P: AsRef<Path>> ImageLoader<'a, E, P> {
         let tex_data = if let Some(texture_info) = texture_info {
             let texture = &self.gltf_info.textures[texture_info.index];
             //TODO error
-            let image_id = texture.source.unwrap();
-            let image = &self.gltf_info.images[image_id];
-            let data = self
-                .mat_range_map
-                .get(&image_id)
-                .context(FailedGetBufferSnafu)?;
-
-            let tex_data = TextureData {
-                id: image_id,
-                data_range: Some(data.clone()),
+            TextureData {
+                image_id: texture.source,
                 factor: color_factor,
-                mime: image.mime_type.clone().unwrap_or("image/png".to_string()),
                 tex_coord: texture_info.tex_coord,
-                sampler: texture.sampler.unwrap(),
-            };
-            Ok(tex_data)
+                sampler: texture.sampler.unwrap_or_default(),
+            }
         } else {
-            Ok(TextureData {
-                data_range: None,
+            TextureData {
                 factor: color_factor,
                 ..Default::default()
-            })
+            }
         };
-        mat_out.insert(key, tex_data?);
+        mat_out.insert(key, tex_data);
         Ok(())
     }
 
     fn prepare_images(&mut self) -> Result<(), Error> {
-        for (i, image) in self.gltf_info.images.iter().enumerate() {
-            let data = if let Some(ref uri) = image.uri {
+        for image in &self.gltf_info.images {
+            let range = if let Some(ref uri) = image.uri {
                 let data = read_uri_data(uri, self.path)?;
                 let start = self.buffer_out.len();
                 self.buffer_out.extend(data);
@@ -259,10 +255,14 @@ impl<'a, E: goth_gltf::Extensions, P: AsRef<Path>> ImageLoader<'a, E, P> {
             } else {
                 return Err(Error::FailedGetBuffer);
             };
-            self.mat_range_map.insert(i, data);
+            self.image_out.push(ImageData {
+                range,
+                mime: image.mime_type.clone().unwrap_or("image/png".to_string()),
+            })
         }
         Ok(())
     }
+
 }
 
 struct PrimitiveBufferReader<'a, E: goth_gltf::Extensions> {
@@ -335,10 +335,10 @@ pub fn load_gltf<P: AsRef<Path>>(path: P) -> Result<(SceneView, GLTFBuffer), Err
         &path,
         &buffer_map,
         &mut gltf_buffer_out.shared_data,
+        &mut scene_view_out.images,
     );
     image_loader.prepare_images()?;
 
-    //TODO change to textures
     for mat in &gltf_info.materials {
         let mut mat_out = Material::new();
         let pbr = &mat.pbr_metallic_roughness;

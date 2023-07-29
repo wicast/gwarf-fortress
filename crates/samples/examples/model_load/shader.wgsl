@@ -43,6 +43,8 @@ fn vs_main(
     let obj_transform: mat4x4<f32> = mat4x4<f32>(obj.tran_row_0, obj.tran_row_1, obj.tran_row_2, obj.tran_row_3);
     out.clip_position = camera.view_proj * obj_transform * vec4<f32>(vert.position, 1.0);
     out.uv0 = uv.uv0;
+    out.base_color = obj.base_color;
+    out.base_color_sampler = obj.base_color_sampler;
     return out;
 }
 

@@ -105,7 +105,6 @@ fn init(base_state: &mut BaseState) {
     let mut per_obj_data = vec![];
     for node in &scene_view.nodes {
         for mesh in &node.meshes {
-            println!("mesh.index.type_size:{}", mesh.index.type_size);
             indirect.push(DrawIndexedIndirect {
                 vertex_count: mesh.index.count as u32,
                 instance_count: 1,
@@ -113,12 +112,11 @@ fn init(base_state: &mut BaseState) {
                 vertex_offset: (mesh.positions.start / mesh.vertex_size) as i32,
                 base_instance: obj_count,
             });
+            let gltf_mat = &scene_view.materials[mesh.mat.unwrap()];
+            let base_color = gltf_mat.get(&MaterialKey::BaseColor).unwrap();
             let mat = MeshMaterial {
-                base_color: mesh.mat.unwrap(),
-                sampler: scene_view.materials[mesh.mat.unwrap()]
-                    .get(&MaterialKey::BaseColor)
-                    .unwrap()
-                    .sampler,
+                base_color: base_color.image_id.unwrap(),
+                sampler: base_color.sampler,
             };
             let per_obj = PerObjData {
                 node: node.per_node_info,
@@ -138,22 +136,20 @@ fn init(base_state: &mut BaseState) {
     });
 
     //TODO tex all in one
-    let mut base_color_view_vec = vec![];
-    for mat in &scene_view.materials {
-        let base_color_info = mat.get(&MaterialKey::BaseColor).unwrap();
-        let base_color_source_data =
-            &scene_buffer.shared_data[base_color_info.data_range.clone().unwrap()];
-        let base_color_dyn_img = gf_base::image::load_from_memory(base_color_source_data).unwrap();
-        let base_color_dimensions = base_color_dyn_img.dimensions();
-        let base_color_rgb = base_color_dyn_img.to_rgba8();
+    let mut texture_view_vec = vec![];
+    for img_info in &scene_view.images {
+        let color_source_data = &scene_buffer.shared_data[img_info.range.clone()];
+        let dyn_img = gf_base::image::load_from_memory(color_source_data).unwrap();
+        let img_dimensions = dyn_img.dimensions();
+        let img_rgb = dyn_img.to_rgba8();
 
-        let base_color_tex = device.create_texture_with_data(
+        let tex = device.create_texture_with_data(
             queue,
             &TextureDescriptor {
                 label: None,
                 size: wgpu::Extent3d {
-                    width: base_color_dimensions.0,
-                    height: base_color_dimensions.1,
+                    width: img_dimensions.0,
+                    height: img_dimensions.1,
                     depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
@@ -163,11 +159,10 @@ fn init(base_state: &mut BaseState) {
                 usage: wgpu::TextureUsages::TEXTURE_BINDING,
                 view_formats: &[],
             },
-            &base_color_rgb,
+            &img_rgb,
         );
-        let base_color_tex_view =
-            base_color_tex.create_view(&wgpu::TextureViewDescriptor::default());
-        base_color_view_vec.push(base_color_tex_view);
+        let tex_view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+        texture_view_vec.push(tex_view);
     }
 
     let mut samplers = vec![];
@@ -236,7 +231,7 @@ fn init(base_state: &mut BaseState) {
                     view_dimension: wgpu::TextureViewDimension::D2,
                     multisampled: false,
                 },
-                count: NonZeroU32::new(base_color_view_vec.len() as u32),
+                count: NonZeroU32::new(texture_view_vec.len() as u32),
             },
             wgpu::BindGroupLayoutEntry {
                 binding: 1,
@@ -254,7 +249,7 @@ fn init(base_state: &mut BaseState) {
             wgpu::BindGroupEntry {
                 binding: 0,
                 resource: wgpu::BindingResource::TextureViewArray(
-                    base_color_view_vec
+                    texture_view_vec
                         .iter()
                         .collect::<Vec<&wgpu::TextureView>>()
                         .as_slice(),
