@@ -1,11 +1,13 @@
 pub mod asset;
 pub mod camera;
+pub mod texture;
 
 use std::time::Duration;
 
 use as_any::{AsAny, Downcast};
 use camera::{Camera, CameraController, CameraUniform};
 use env_logger::Env;
+use texture::Texture;
 use wgpu::util::DeviceExt;
 use winit::{
     event::{
@@ -48,6 +50,7 @@ pub struct BaseState {
     pub config: wgpu::SurfaceConfiguration,
     pub size: winit::dpi::PhysicalSize<u32>,
     pub window: Window,
+    pub depth: Texture,
 
     pub camera: Camera,
     pub camera_controller: CameraController,
@@ -58,6 +61,7 @@ pub struct BaseState {
 
     pub mouse_pressed: bool,
 
+    //TODO optional
     pub extra_state: Box<dyn StateDynObj>,
     pub render_fn: RenderFn,
     pub tick_fn: TickFn,
@@ -174,6 +178,8 @@ impl BaseState {
                 label: Some("camera_bind_group"),
             });
 
+        let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
+
         let mut base_state = Self {
             window,
             surface,
@@ -191,6 +197,7 @@ impl BaseState {
             camera_bind_group,
             camera_buffer,
             camera_bind_group_layout,
+            depth: depth_texture,
         };
         init_fn(&mut base_state);
         base_state
@@ -208,6 +215,7 @@ impl BaseState {
             self.surface.configure(&self.device, &self.config);
             self.camera.proj.resize(new_size.width, new_size.height);
         }
+        self.depth = texture::Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
     }
 
     fn input(&mut self, event: &WindowEvent) -> bool {

@@ -9,10 +9,11 @@ use gf_base::{
     image::GenericImageView,
     run,
     snafu::ErrorCompat,
+    texture,
     wgpu::{
         self,
         util::{BufferInitDescriptor, DeviceExt, DrawIndexedIndirect},
-        TextureDescriptor,
+        DepthStencilState, Operations, RenderPassDepthStencilAttachment, TextureDescriptor,
         VertexFormat::*,
     },
     BaseState, StateDynObj,
@@ -61,10 +62,10 @@ fn init(base_state: &mut BaseState) {
     //     "{}/../../assets/gltf/simple_plane.gltf",
     //     env!("CARGO_MANIFEST_DIR")
     // );
-    // let path = format!(
-    //     "{}/../../assets/gltf/FlightHelmet/FlightHelmet.gltf",
-    //     env!("CARGO_MANIFEST_DIR")
-    // );
+    let path = format!(
+        "{}/../../assets/gltf/FlightHelmet/FlightHelmet.gltf",
+        env!("CARGO_MANIFEST_DIR")
+    );
 
     let (scene_view, scene_buffer) = match load_gltf(&path) {
         Ok(scene) => scene,
@@ -294,7 +295,13 @@ fn init(base_state: &mut BaseState) {
             polygon_mode: wgpu::PolygonMode::Fill,
             conservative: false,
         },
-        depth_stencil: None,
+        depth_stencil: Some(DepthStencilState {
+            format: texture::Texture::DEPTH_FORMAT,
+            depth_write_enabled: true,
+            depth_compare: wgpu::CompareFunction::Less,
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        }),
         multisample: wgpu::MultisampleState {
             count: 1,
             mask: !0,
@@ -352,7 +359,14 @@ fn render(base_state: &mut BaseState, _dt: Duration) -> Result<(), wgpu::Surface
                     store: true,
                 },
             })],
-            depth_stencil_attachment: None,
+            depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
+                view: &base_state.depth.view,
+                depth_ops: Some(Operations {
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: true,
+                }),
+                stencil_ops: None,
+            }),
         });
 
         let state = downcast_mut::<State>(&mut base_state.extra_state).unwrap();
