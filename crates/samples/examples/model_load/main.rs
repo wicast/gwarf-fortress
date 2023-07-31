@@ -8,7 +8,7 @@ use gf_base::{
     downcast_mut,
     image::GenericImageView,
     run,
-    snafu::ErrorCompat,
+    snafu::{ErrorCompat, OptionExt, ResultExt},
     texture,
     wgpu::{
         self,
@@ -16,20 +16,19 @@ use gf_base::{
         DepthStencilState, Operations, RenderPassDepthStencilAttachment, TextureDescriptor,
         VertexFormat::*,
     },
-    BaseState, StateDynObj,
+    BaseState, Error, GLTFErrSnafu, ImageLoadErrSnafu, NoneErrSnafu, StateDynObj, SurfaceErrSnafu,
 };
 
-#[derive(Default)]
 struct State {
-    render_pipeline: Option<wgpu::RenderPipeline>,
-    vertices: Option<wgpu::Buffer>,
-    normal: Option<wgpu::Buffer>,
-    uv0: Option<wgpu::Buffer>,
-    index: Option<wgpu::Buffer>,
+    render_pipeline: wgpu::RenderPipeline,
+    vertices: wgpu::Buffer,
+    normal: wgpu::Buffer,
+    uv0: wgpu::Buffer,
+    index: wgpu::Buffer,
     obj_count: usize,
-    obj_buf: Option<wgpu::Buffer>,
-    indirect_buf: Option<wgpu::Buffer>,
-    tex_bind_group: Option<wgpu::BindGroup>,
+    obj_buf: wgpu::Buffer,
+    indirect_buf: wgpu::Buffer,
+    tex_bind_group: wgpu::BindGroup,
 }
 
 impl StateDynObj for State {}
@@ -48,10 +47,9 @@ struct MeshMaterial {
     sampler: usize,
 }
 
-fn init(base_state: &mut BaseState) {
+fn init(base_state: &mut BaseState) -> Result<(), Error> {
     let device = &base_state.device;
     let queue = &base_state.queue;
-    let state = downcast_mut::<State>(&mut base_state.extra_state).unwrap();
 
     // Prepare buffers
     let path = format!(
@@ -67,34 +65,25 @@ fn init(base_state: &mut BaseState) {
         env!("CARGO_MANIFEST_DIR")
     );
 
-    let (scene_view, scene_buffer) = match load_gltf(&path) {
-        Ok(scene) => scene,
-        Err(e) => {
-            eprintln!("An error occurred: {}", e);
-            if let Some(bt) = ErrorCompat::backtrace(&e) {
-                eprintln!("{:?}", bt);
-            }
-            return;
-        }
-    };
+    let (scene_view, scene_buffer) = load_gltf(&path).context(GLTFErrSnafu)?;
 
     let vert_buf = device.create_buffer_init(&BufferInitDescriptor {
-        label: None,
+        label: Some("vertex"),
         contents: &scene_buffer.positions,
         usage: wgpu::BufferUsages::VERTEX,
     });
     let index_buf = device.create_buffer_init(&BufferInitDescriptor {
-        label: None,
+        label: Some("index"),
         contents: &scene_buffer.index,
         usage: wgpu::BufferUsages::INDEX,
     });
     let normal_buf = device.create_buffer_init(&BufferInitDescriptor {
-        label: None,
+        label: Some("normal"),
         contents: bytemuck::cast_slice(&scene_buffer.normal),
         usage: wgpu::BufferUsages::VERTEX,
     });
     let uv0_buf = device.create_buffer_init(&BufferInitDescriptor {
-        label: None,
+        label: Some("uv0"),
         contents: bytemuck::cast_slice(&scene_buffer.texcoord[0]),
         usage: wgpu::BufferUsages::VERTEX,
     });
@@ -112,10 +101,13 @@ fn init(base_state: &mut BaseState) {
                 vertex_offset: (mesh.positions.start / mesh.vertex_size) as i32,
                 base_instance: obj_count,
             });
-            let gltf_mat = &scene_view.materials[mesh.mat.unwrap()];
-            let base_color = gltf_mat.get(&MaterialKey::BaseColor).unwrap();
+            let gltf_mat = &scene_view.materials[mesh.mat.context(NoneErrSnafu)?];
+            let base_color = gltf_mat
+                .get(&MaterialKey::BaseColor)
+                .context(NoneErrSnafu)?;
             let mat = MeshMaterial {
-                base_color: base_color.image_id.unwrap(),
+                //TODO deal without image
+                base_color: base_color.image_id.context(NoneErrSnafu)?,
                 sampler: base_color.sampler,
             };
             let per_obj = PerObjData {
@@ -127,10 +119,9 @@ fn init(base_state: &mut BaseState) {
             obj_count += 1;
         }
     }
-    state.obj_count = obj_count as usize;
 
     let obj_buf = device.create_buffer_init(&BufferInitDescriptor {
-        label: None,
+        label: Some("Per obj buffer"),
         contents: bytemuck::cast_slice(&per_obj_data),
         usage: wgpu::BufferUsages::VERTEX,
     });
@@ -138,7 +129,8 @@ fn init(base_state: &mut BaseState) {
     let mut texture_view_vec = vec![];
     for img_info in &scene_view.images {
         let color_source_data = &scene_buffer.shared_data[img_info.range.clone()];
-        let dyn_img = gf_base::image::load_from_memory(color_source_data).unwrap();
+        let dyn_img =
+            gf_base::image::load_from_memory(color_source_data).context(ImageLoadErrSnafu)?;
         let img_dimensions = dyn_img.dimensions();
         let img_rgb = dyn_img.to_rgba8();
 
@@ -179,7 +171,7 @@ fn init(base_state: &mut BaseState) {
         .collect();
 
     let indirect_buf = device.create_buffer_init(&BufferInitDescriptor {
-        label: None,
+        label: Some("indirect"),
         contents: &indirect,
         usage: wgpu::BufferUsages::INDIRECT,
     });
@@ -312,20 +304,27 @@ fn init(base_state: &mut BaseState) {
         }),
         multiview: None,
     });
+    let state = Box::new(State {
+        render_pipeline,
+        vertices: vert_buf,
+        normal: normal_buf,
+        uv0: uv0_buf,
+        index: index_buf,
+        obj_count: obj_count as usize,
+        obj_buf,
+        indirect_buf,
+        tex_bind_group,
+    });
+    base_state.extra_state = Some(state);
 
-    state.render_pipeline = Some(render_pipeline);
-
-    state.vertices = Some(vert_buf);
-    state.normal = Some(normal_buf);
-    state.uv0 = Some(uv0_buf);
-    state.index = Some(index_buf);
-    state.obj_buf = Some(obj_buf);
-    state.indirect_buf = Some(indirect_buf);
-    state.tex_bind_group = Some(tex_bind_group);
+    Ok(())
 }
 
-fn render(base_state: &mut BaseState, _dt: Duration) -> Result<(), wgpu::SurfaceError> {
-    let output: wgpu::SurfaceTexture = base_state.surface.get_current_texture()?;
+fn render(base_state: &mut BaseState, _dt: Duration) -> Result<(), Error> {
+    let output: wgpu::SurfaceTexture = base_state
+        .surface
+        .get_current_texture()
+        .context(SurfaceErrSnafu)?;
     let view = output
         .texture
         .create_view(&wgpu::TextureViewDescriptor::default());
@@ -356,33 +355,27 @@ fn render(base_state: &mut BaseState, _dt: Duration) -> Result<(), wgpu::Surface
                 view: &base_state.depth.view,
                 depth_ops: Some(Operations {
                     load: wgpu::LoadOp::Clear(1.0),
-                    store: true,
+                    store: false,
                 }),
                 stencil_ops: None,
             }),
         });
 
-        let state = downcast_mut::<State>(&mut base_state.extra_state).unwrap();
-        let pipeline = state.render_pipeline.as_ref().unwrap();
+        let state_long_live = base_state.extra_state.as_mut().context(NoneErrSnafu)?;
+        let state = downcast_mut::<State>(state_long_live).context(NoneErrSnafu)?;
+        let pipeline = &state.render_pipeline;
         render_pass.set_pipeline(pipeline);
         render_pass.set_bind_group(0, &base_state.camera_bind_group, &[]);
-        render_pass.set_bind_group(1, state.tex_bind_group.as_ref().unwrap(), &[]);
+        render_pass.set_bind_group(1, &state.tex_bind_group, &[]);
 
-        render_pass.set_vertex_buffer(0, state.vertices.as_ref().unwrap().slice(..));
-        render_pass.set_vertex_buffer(1, state.obj_buf.as_ref().unwrap().slice(..));
-        render_pass.set_vertex_buffer(2, state.normal.as_ref().unwrap().slice(..));
-        render_pass.set_vertex_buffer(3, state.uv0.as_ref().unwrap().slice(..));
+        render_pass.set_vertex_buffer(0, state.vertices.slice(..));
+        render_pass.set_vertex_buffer(1, state.obj_buf.slice(..));
+        render_pass.set_vertex_buffer(2, state.normal.slice(..));
+        render_pass.set_vertex_buffer(3, state.uv0.slice(..));
 
-        render_pass.set_index_buffer(
-            state.index.as_ref().unwrap().slice(..),
-            wgpu::IndexFormat::Uint16,
-        );
+        render_pass.set_index_buffer(state.index.slice(..), wgpu::IndexFormat::Uint16);
 
-        render_pass.multi_draw_indexed_indirect(
-            state.indirect_buf.as_ref().unwrap(),
-            0,
-            state.obj_count as u32,
-        );
+        render_pass.multi_draw_indexed_indirect(&state.indirect_buf, 0, state.obj_count as u32);
     }
 
     // submit will accept anything that implements IntoIter
@@ -391,10 +384,8 @@ fn render(base_state: &mut BaseState, _dt: Duration) -> Result<(), wgpu::Surface
     Ok(())
 }
 
-//WIP!!
 fn main() {
     pollster::block_on(run(
-        Box::<State>::default(),
         || {
             (
                 wgpu::Backends::all(),
@@ -405,7 +396,7 @@ fn main() {
             )
         },
         init,
-        |_state, _dt| {},
+        |_state, _dt| Ok(()),
         render,
     ))
 }

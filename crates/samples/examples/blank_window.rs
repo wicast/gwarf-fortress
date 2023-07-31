@@ -1,8 +1,8 @@
 use std::time::Duration;
 
-use gf_base::{downcast_mut, run, BaseState, StateDynObj, default_configs};
-use gf_base::wgpu;
-
+use gf_base::snafu::{OptionExt, ResultExt};
+use gf_base::{default_configs, downcast_mut, run, BaseState, Error, StateDynObj, SurfaceErrSnafu};
+use gf_base::{wgpu, NoneErrSnafu};
 
 #[derive(Default)]
 struct State {
@@ -11,13 +11,16 @@ struct State {
 
 impl StateDynObj for State {}
 
-fn render(state: &mut BaseState, dt: Duration) -> Result<(), wgpu::SurfaceError> {
-    let output = state.surface.get_current_texture()?;
+fn render(base_state: &mut BaseState, dt: Duration) -> Result<(), Error> {
+    let output = base_state
+        .surface
+        .get_current_texture()
+        .context(SurfaceErrSnafu)?;
     let view = output
         .texture
         .create_view(&wgpu::TextureViewDescriptor::default());
 
-    let mut encoder = state
+    let mut encoder = base_state
         .device
         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Render Encoder"),
@@ -44,22 +47,24 @@ fn render(state: &mut BaseState, dt: Duration) -> Result<(), wgpu::SurfaceError>
     }
 
     // submit will accept anything that implements IntoIter
-    state.queue.submit(std::iter::once(encoder.finish()));
+    base_state.queue.submit(std::iter::once(encoder.finish()));
     output.present();
     Ok(())
 }
 
 fn main() {
     pollster::block_on(run(
-        Box::new(State::default()),
         default_configs,
-        |state| {
-            let mut state = downcast_mut::<State>(&mut state.extra_state).unwrap();
-            state.i = 3213312;
+        |base_state| {
+            let state = Box::new(State { i: 3213312 });
+            base_state.extra_state = Some(state);
+            Ok(())
         },
-        |state, dt| {
-            let state = downcast_mut::<State>(&mut state.extra_state).unwrap();
-            // println!("state: {}", state.i)
+        |base_state, dt| {
+            let state_long_live = base_state.extra_state.as_mut().context(NoneErrSnafu)?;
+            let state = downcast_mut::<State>(state_long_live).context(NoneErrSnafu)?;
+            println!("state: {}", state.i);
+            Ok(())
         },
         render,
     ))

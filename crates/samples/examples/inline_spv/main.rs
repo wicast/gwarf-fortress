@@ -1,15 +1,15 @@
 use std::time::Duration;
 
-use gf_base::wgpu;
-use gf_base::{downcast_mut, run, BaseState, StateDynObj};
+use gf_base::snafu::{OptionExt, ResultExt};
+use gf_base::{downcast_mut, run, BaseState, Error, StateDynObj, SurfaceErrSnafu};
+use gf_base::{wgpu, NoneErrSnafu};
 
 use wgpu::util::DeviceExt;
 
-#[derive(Default)]
 struct State {
-    render_pipeline: Option<wgpu::RenderPipeline>,
-    vertices: Option<wgpu::Buffer>,
-    index: Option<wgpu::Buffer>,
+    render_pipeline: wgpu::RenderPipeline,
+    vertices: wgpu::Buffer,
+    index: wgpu::Buffer,
 }
 
 #[repr(C)]
@@ -60,20 +60,20 @@ const INDICES: &[u16] = &[0, 1, 4, 1, 2, 4, 2, 3, 4];
 
 impl StateDynObj for State {}
 
-fn init(state: &mut BaseState) {
-    let device = &state.device;
-    let shader = state
+fn init(base_state: &mut BaseState) -> Result<(), Error> {
+    let device = &base_state.device;
+    let shader = base_state
         .device
         .create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
     let vert_shader = &shader;
     let frag_shader = &shader;
     let vert_shader = unsafe {
-        state
+        base_state
             .device
             .create_shader_module_spirv(&wgpu::include_spirv_raw!("shader.spv"))
     };
     let frag_shader = unsafe {
-        state
+        base_state
             .device
             .create_shader_module_spirv(&wgpu::include_spirv_raw!("shader.spv"))
     };
@@ -112,7 +112,7 @@ fn init(state: &mut BaseState) {
             entry_point: "fs_main",
             targets: &[Some(wgpu::ColorTargetState {
                 // 4.
-                format: state.config.format,
+                format: base_state.config.format,
                 blend: Some(wgpu::BlendState::REPLACE),
                 write_mask: wgpu::ColorWrites::ALL,
             })],
@@ -120,8 +120,6 @@ fn init(state: &mut BaseState) {
         multiview: None,
     });
 
-    let mut state = downcast_mut::<State>(&mut state.extra_state).unwrap();
-    state.render_pipeline = Some(render_pipeline);
     let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("Vertex Buffer"),
         contents: bytemuck::cast_slice(VERTICES),
@@ -132,23 +130,35 @@ fn init(state: &mut BaseState) {
         contents: bytemuck::cast_slice(INDICES),
         usage: wgpu::BufferUsages::INDEX,
     });
-    state.vertices = Some(vertex_buffer);
-    state.index = Some(index_buffer);
+
+    let state = Box::new(State {
+        render_pipeline,
+        vertices: vertex_buffer,
+        index: index_buffer,
+    });
+    base_state.extra_state = Some(state);
+
+    Ok(())
 }
 
-fn render(state: &mut BaseState, dt: Duration) -> Result<(), wgpu::SurfaceError> {
-    let output = state.surface.get_current_texture()?;
+fn render(base_state: &mut BaseState, dt: Duration) -> Result<(), Error> {
+    let output = base_state
+        .surface
+        .get_current_texture()
+        .context(SurfaceErrSnafu)?;
     let view = output
         .texture
         .create_view(&wgpu::TextureViewDescriptor::default());
 
-    let mut encoder = state
+    let mut encoder = base_state
         .device
         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Render Encoder"),
         });
 
     {
+        let state_long_live = base_state.extra_state.as_mut().context(NoneErrSnafu)?;
+        let state = downcast_mut::<State>(state_long_live).context(NoneErrSnafu)?;
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Render Pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -167,26 +177,21 @@ fn render(state: &mut BaseState, dt: Duration) -> Result<(), wgpu::SurfaceError>
             depth_stencil_attachment: None,
         });
 
-        let state = downcast_mut::<State>(&mut state.extra_state).unwrap();
-        let pipeline = state.render_pipeline.as_ref().unwrap();
+        let pipeline = &state.render_pipeline;
         render_pass.set_pipeline(pipeline);
-        render_pass.set_vertex_buffer(0, state.vertices.as_ref().unwrap().slice(..));
-        render_pass.set_index_buffer(
-            state.index.as_ref().unwrap().slice(..),
-            wgpu::IndexFormat::Uint16,
-        );
+        render_pass.set_vertex_buffer(0, state.vertices.slice(..));
+        render_pass.set_index_buffer(state.index.slice(..), wgpu::IndexFormat::Uint16);
         render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..1);
     }
 
     // submit will accept anything that implements IntoIter
-    state.queue.submit(std::iter::once(encoder.finish()));
+    base_state.queue.submit(std::iter::once(encoder.finish()));
     output.present();
     Ok(())
 }
 
 fn main() {
     pollster::block_on(run(
-        Box::<State>::default(),
         || {
             (
                 wgpu::Backends::all(),
@@ -197,6 +202,7 @@ fn main() {
         |_state, dt| {
             // let state = cast_mut::<State>(&mut state.extra_state).unwrap();
             // println!("state: {}", state.i)
+            Ok(())
         },
         render,
     ))

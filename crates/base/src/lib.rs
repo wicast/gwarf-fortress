@@ -7,6 +7,8 @@ use std::time::Duration;
 use as_any::{AsAny, Downcast};
 use camera::{Camera, CameraController, CameraUniform};
 use env_logger::Env;
+use image::ImageError;
+use snafu::{Backtrace, Snafu};
 use texture::Texture;
 use wgpu::util::DeviceExt;
 use winit::{
@@ -19,16 +21,16 @@ use winit::{
 
 pub use bytemuck;
 pub use env_logger;
+pub use glam;
+pub use image;
 pub use snafu;
 pub use wgpu;
 pub use winit;
-pub use image;
-pub use glam;
 
 type GetConfigFn = fn() -> (wgpu::Backends, wgpu::Features);
-type InitFn = fn(state: &mut BaseState) -> ();
-type TickFn = fn(state: &mut BaseState, dt: Duration) -> ();
-type RenderFn = fn(state: &mut BaseState, dt: Duration) -> Result<(), wgpu::SurfaceError>;
+type InitFn = fn(state: &mut BaseState) -> Result<(), Error>;
+type TickFn = fn(state: &mut BaseState, dt: Duration) -> Result<(), Error>;
+type RenderFn = fn(state: &mut BaseState, dt: Duration) -> Result<(), Error>;
 
 pub fn default_configs() -> (wgpu::Backends, wgpu::Features) {
     (wgpu::Backends::all(), wgpu::Features::empty())
@@ -40,8 +42,14 @@ pub fn downcast_mut<OT: 'static>(state: &mut Box<dyn StateDynObj>) -> Option<&mu
     state.as_mut().downcast_mut::<OT>()
 }
 
-//TODO
-pub struct Error {}
+#[derive(Debug, Snafu)]
+#[snafu(visibility(pub))]
+pub enum Error {
+    GLTFErr { source: asset::gltf::Error },
+    NoneErr { backtrace: Backtrace },
+    ImageLoadErr { source: ImageError },
+    SurfaceErr { source: wgpu::SurfaceError },
+}
 
 pub struct BaseState {
     pub surface: wgpu::Surface,
@@ -61,8 +69,7 @@ pub struct BaseState {
 
     pub mouse_pressed: bool,
 
-    //TODO optional
-    pub extra_state: Box<dyn StateDynObj>,
+    pub extra_state: Option<Box<dyn StateDynObj>>,
     pub render_fn: RenderFn,
     pub tick_fn: TickFn,
 }
@@ -71,7 +78,6 @@ impl BaseState {
     // Creating some of the wgpu types requires async code
     async fn new(
         window: Window,
-        in_state: Box<dyn StateDynObj>,
         config_fn: GetConfigFn,
         init_fn: InitFn,
         tick_fn: TickFn,
@@ -178,7 +184,8 @@ impl BaseState {
                 label: Some("camera_bind_group"),
             });
 
-        let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
+        let depth_texture =
+            texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
         let mut base_state = Self {
             window,
@@ -189,7 +196,7 @@ impl BaseState {
             size,
             render_fn,
             tick_fn,
-            extra_state: in_state,
+            extra_state: Default::default(),
             camera,
             camera_controller,
             camera_uniform,
@@ -199,7 +206,9 @@ impl BaseState {
             camera_bind_group_layout,
             depth: depth_texture,
         };
-        init_fn(&mut base_state);
+        //TODO deal with error
+        let init_result = init_fn(&mut base_state);
+        init_result.unwrap();
         base_state
     }
 
@@ -215,7 +224,8 @@ impl BaseState {
             self.surface.configure(&self.device, &self.config);
             self.camera.proj.resize(new_size.width, new_size.height);
         }
-        self.depth = texture::Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
+        self.depth =
+            texture::Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
     }
 
     fn input(&mut self, event: &WindowEvent) -> bool {
@@ -245,7 +255,7 @@ impl BaseState {
         }
     }
 
-    fn tick(&mut self, dt: Duration) {
+    fn tick(&mut self, dt: Duration) -> Result<(), Error>{
         self.camera_controller.update_camera(&mut self.camera, dt);
         self.camera_uniform.update_view_proj(&self.camera);
         self.queue.write_buffer(
@@ -253,27 +263,21 @@ impl BaseState {
             0,
             bytemuck::cast_slice(&[self.camera_uniform]),
         );
-        (self.tick_fn)(self, dt);
+        (self.tick_fn)(self, dt)
     }
 
-    fn render(&mut self, dt: Duration) -> Result<(), wgpu::SurfaceError> {
+    fn render(&mut self, dt: Duration) -> Result<(), Error> {
         (self.render_fn)(self, dt)
     }
 }
 
-pub async fn run(
-    in_state: Box<dyn StateDynObj>,
-    config_fn: GetConfigFn,
-    init_fn: InitFn,
-    tick_fn: TickFn,
-    render_fn: RenderFn,
-) {
+pub async fn run(config_fn: GetConfigFn, init_fn: InitFn, tick_fn: TickFn, render_fn: RenderFn) {
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new().build(&event_loop).unwrap();
     let mut last_render_time = std::time::Instant::now();
 
-    let mut state = BaseState::new(window, in_state, config_fn, init_fn, tick_fn, render_fn).await;
+    let mut state = BaseState::new(window, config_fn, init_fn, tick_fn, render_fn).await;
     event_loop.run(move |event, _, control_flow| {
         match event {
             Event::DeviceEvent {
@@ -315,13 +319,24 @@ pub async fn run(
                 last_render_time = now;
                 state.tick(dt);
                 match state.render(dt) {
-                    Ok(_) => {}
-                    // Reconfigure the surface if lost
-                    Err(wgpu::SurfaceError::Lost) => state.resize(state.size),
-                    // The system is out of memory, we should probably quit
-                    Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
-                    // All other errors (Outdated, Timeout) should be resolved by the next frame
-                    Err(e) => eprintln!("{:?}", e),
+                    Ok(_) => {},
+                    Err(err) => {
+                        match err {
+                            Error::SurfaceErr { source } => {
+                                match source {
+                                    // Reconfigure the surface if lost
+                                    wgpu::SurfaceError::Lost => state.resize(state.size),
+                                    // The system is out of memory, we should probably quit
+                                    wgpu::SurfaceError::OutOfMemory => *control_flow = ControlFlow::Exit,
+                                    // All other errors
+                                    e => eprintln!("{:?}", e),
+                                }
+                            },
+                            e => {
+                                eprintln!("{:?}", e);
+                            }
+                        }
+                    },
                 }
             }
             Event::MainEventsCleared => {

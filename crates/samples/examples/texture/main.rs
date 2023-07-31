@@ -1,15 +1,17 @@
 use std::time::Duration;
 
-use gf_base::{downcast_mut, run, BaseState, StateDynObj, default_configs};
-use gf_base::wgpu;
+use gf_base::snafu::{OptionExt, ResultExt};
+use gf_base::{
+    default_configs, downcast_mut, run, BaseState, NoneErrSnafu, StateDynObj, SurfaceErrSnafu,
+};
+use gf_base::{wgpu, Error};
 
 use wgpu::util::DeviceExt;
 
-#[derive(Default)]
 struct State {
-    render_pipeline: Option<wgpu::RenderPipeline>,
-    vertices: Option<wgpu::Buffer>,
-    index: Option<wgpu::Buffer>,
+    render_pipeline: wgpu::RenderPipeline,
+    vertices: wgpu::Buffer,
+    index: wgpu::Buffer,
 }
 
 #[repr(C)]
@@ -35,27 +37,35 @@ impl Vertex {
 }
 
 const VERTICES: &[Vertex] = &[
-    Vertex { position: [-0.0868241, 0.49240386, 0.0], color: [0.5, 0.0, 0.5] }, // A
-    Vertex { position: [-0.49513406, 0.06958647, 0.0], color: [0.5, 0.0, 0.5] }, // B
-    Vertex { position: [-0.21918549, -0.44939706, 0.0], color: [0.5, 0.0, 0.5] }, // C
-    Vertex { position: [0.35966998, -0.3473291, 0.0], color: [0.5, 0.0, 0.5] }, // D
-    Vertex { position: [0.44147372, 0.2347359, 0.0], color: [0.5, 0.0, 0.5] }, // E
+    Vertex {
+        position: [-0.0868241, 0.49240386, 0.0],
+        color: [0.5, 0.0, 0.5],
+    }, // A
+    Vertex {
+        position: [-0.49513406, 0.06958647, 0.0],
+        color: [0.5, 0.0, 0.5],
+    }, // B
+    Vertex {
+        position: [-0.21918549, -0.44939706, 0.0],
+        color: [0.5, 0.0, 0.5],
+    }, // C
+    Vertex {
+        position: [0.35966998, -0.3473291, 0.0],
+        color: [0.5, 0.0, 0.5],
+    }, // D
+    Vertex {
+        position: [0.44147372, 0.2347359, 0.0],
+        color: [0.5, 0.0, 0.5],
+    }, // E
 ];
-const INDICES: &[u16] = &[
-    0, 1, 4,
-    1, 2, 4,
-    2, 3, 4,
-];
+const INDICES: &[u16] = &[0, 1, 4, 1, 2, 4, 2, 3, 4];
 
 impl StateDynObj for State {}
 
-fn init(base_state: &mut BaseState) {
+fn init(base_state: &mut BaseState) -> Result<(), Error> {
     let device = &base_state.device;
-    let mut state = downcast_mut::<State>(&mut base_state.extra_state).unwrap();
 
-    
-    let shader = device
-        .create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
+    let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
 
     let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Render Pipeline Layout"),
@@ -99,25 +109,32 @@ fn init(base_state: &mut BaseState) {
         multiview: None,
     });
 
-    state.render_pipeline = Some(render_pipeline);
     let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("Vertex Buffer"),
         contents: bytemuck::cast_slice(VERTICES),
         usage: wgpu::BufferUsages::VERTEX,
     });
-    let index_buffer = device.create_buffer_init(
-        &wgpu::util::BufferInitDescriptor {
-            label: Some("Index Buffer"),
-            contents: bytemuck::cast_slice(INDICES),
-            usage: wgpu::BufferUsages::INDEX,
-        }
-    );
-    state.vertices = Some(vertex_buffer);
-    state.index = Some(index_buffer);
+    let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("Index Buffer"),
+        contents: bytemuck::cast_slice(INDICES),
+        usage: wgpu::BufferUsages::INDEX,
+    });
+
+    let state = Box::new(State {
+        render_pipeline,
+        vertices: vertex_buffer,
+        index: index_buffer,
+    });
+    base_state.extra_state = Some(state);
+
+    Ok(())
 }
 
-fn render(base_state: &mut BaseState, dt: Duration) -> Result<(), wgpu::SurfaceError> {
-    let output = base_state.surface.get_current_texture()?;
+fn render(base_state: &mut BaseState, dt: Duration) -> Result<(), Error> {
+    let output = base_state
+        .surface
+        .get_current_texture()
+        .context(SurfaceErrSnafu)?;
     let view = output
         .texture
         .create_view(&wgpu::TextureViewDescriptor::default());
@@ -129,6 +146,9 @@ fn render(base_state: &mut BaseState, dt: Duration) -> Result<(), wgpu::SurfaceE
         });
 
     {
+        let state_long_live = base_state.extra_state.as_mut().context(NoneErrSnafu)?;
+        let state = downcast_mut::<State>(state_long_live).context(NoneErrSnafu)?;
+
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Render Pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -147,13 +167,12 @@ fn render(base_state: &mut BaseState, dt: Duration) -> Result<(), wgpu::SurfaceE
             depth_stencil_attachment: None,
         });
 
-        let state = downcast_mut::<State>(&mut base_state.extra_state).unwrap();
-        let pipeline = state.render_pipeline.as_ref().unwrap();
+        let pipeline = &state.render_pipeline;
         render_pass.set_pipeline(pipeline);
-        render_pass.set_bind_group(0, &base_state.camera_bind_group , &[]);
-        render_pass.set_vertex_buffer(0, state.vertices.as_ref().unwrap().slice(..));
-        render_pass.set_index_buffer(state.index.as_ref().unwrap().slice(..), wgpu::IndexFormat::Uint16);
-        render_pass.draw_indexed(0..INDICES.len() as u32, 0,0..1);
+        render_pass.set_bind_group(0, &base_state.camera_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, state.vertices.slice(..));
+        render_pass.set_index_buffer(state.index.slice(..), wgpu::IndexFormat::Uint16);
+        render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..1);
     }
 
     // submit will accept anything that implements IntoIter
@@ -164,13 +183,5 @@ fn render(base_state: &mut BaseState, dt: Duration) -> Result<(), wgpu::SurfaceE
 
 // WIP!!
 fn main() {
-    pollster::block_on(run(
-        Box::<State>::default(),
-        default_configs,
-        init,
-        |state, dt| {
-            
-        },
-        render,
-    ))
+    pollster::block_on(run(default_configs, init, |state, dt| Ok(()), render))
 }

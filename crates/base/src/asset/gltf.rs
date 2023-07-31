@@ -262,7 +262,6 @@ impl<'a, E: goth_gltf::Extensions, P: AsRef<Path>> ImageLoader<'a, E, P> {
         }
         Ok(())
     }
-
 }
 
 struct PrimitiveBufferReader<'a, E: goth_gltf::Extensions> {
@@ -377,44 +376,10 @@ pub fn load_gltf<P: AsRef<Path>>(path: P) -> Result<(SceneView, GLTFBuffer), Err
     }
 
     for sampler in &gltf_info.samplers {
-        scene_view_out.samplers.push(clone_sampler(sampler));
+        scene_view_out.samplers.push(sampler.clone());
     }
 
     Ok((scene_view_out, gltf_buffer_out))
-}
-
-//HACK sampler is not clone
-pub fn clone_sampler(sampler: &Sampler) -> Sampler {
-    fn get_filter_mode(mode: &goth_gltf::FilterMode) -> goth_gltf::FilterMode {
-        match mode {
-            goth_gltf::FilterMode::Nearest => goth_gltf::FilterMode::Nearest,
-            goth_gltf::FilterMode::Linear => goth_gltf::FilterMode::Linear,
-        }
-    }
-
-    fn get_sample_wrap(wrap: &goth_gltf::SamplerWrap) -> goth_gltf::SamplerWrap {
-        match wrap {
-            goth_gltf::SamplerWrap::ClampToEdge => goth_gltf::SamplerWrap::ClampToEdge,
-            goth_gltf::SamplerWrap::MirroredRepeat => goth_gltf::SamplerWrap::ClampToEdge,
-            goth_gltf::SamplerWrap::Repeat => goth_gltf::SamplerWrap::ClampToEdge,
-        }
-    }
-
-    let mag_filter = sampler.mag_filter.as_ref().map(get_filter_mode);
-    let min_filter = sampler
-        .min_filter
-        .as_ref()
-        .map(|filter| goth_gltf::MinFilter {
-            mode: get_filter_mode(&filter.mode),
-            mipmap: filter.mipmap.as_ref().map(get_filter_mode),
-        });
-    Sampler {
-        name: sampler.name.clone(),
-        mag_filter,
-        min_filter,
-        wrap_s: get_sample_wrap(&sampler.wrap_s),
-        wrap_t: get_sample_wrap(&sampler.wrap_t),
-    }
 }
 
 fn load_model_buffers<P: AsRef<Path>>(
@@ -476,7 +441,7 @@ fn get_raw_data_via_buffer_view<E: goth_gltf::Extensions>(
     let stride = buffer_view.byte_stride;
     let buffer_id = buffer_view.buffer;
     // load buffer data
-    let buffer = buffer_map.get(&buffer_id).ok_or(Error::FailedGetBuffer)?;
+    let buffer = buffer_map.get(&buffer_id).context(FailedGetBufferSnafu)?;
     let length = possible_length
         .unwrap_or(buffer_view.byte_length)
         .min(buffer_view.byte_length);
