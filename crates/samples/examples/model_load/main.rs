@@ -6,6 +6,7 @@ use std::time::Duration;
 use gf_base::{
     asset::gltf::{load_gltf, MaterialKey, PerNodeBuffer},
     downcast_mut,
+    glam::{Mat3, Mat4},
     image::GenericImageView,
     run,
     snafu::{ErrorCompat, OptionExt, ResultExt},
@@ -29,22 +30,48 @@ struct State {
     obj_buf: wgpu::Buffer,
     indirect_buf: wgpu::Buffer,
     tex_bind_group: wgpu::BindGroup,
+    light_buf: wgpu::Buffer,
+    light_bind_group: wgpu::BindGroup,
+    light_pipeline: wgpu::RenderPipeline,
+    cube_buf: wgpu::Buffer,
+    cube_ind: wgpu::Buffer,
+    cube_ind_count: usize,
 }
 
 impl StateDynObj for State {}
 
-#[repr(C, align(4))]
+#[repr(C, align(16))]
 #[derive(Copy, Clone, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
 struct PerObjData {
-    node: PerNodeBuffer,
-    mat: MeshMaterial,
+    base_color: u32,
+    sampler: u32,
+    pub transform: [[f32; 4]; 4],
+    pub normal_matrix: [[f32; 3]; 3],
+    _padding: [f32; 5],
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
+struct PerObjB {
+    pub transform: Mat4,
+    pub normal_matrix: Mat3,
+    _padding: [f32; 3],
 }
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
 struct MeshMaterial {
-    base_color: usize,
-    sampler: usize,
+    base_color: u32,
+    sampler: u32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
+struct LightBuffer {
+    position: [f32; 3],
+    _padding: u32,
+    color: [f32; 3],
+    _padding2: u32,
 }
 
 fn init(base_state: &mut BaseState) -> Result<(), Error> {
@@ -84,7 +111,7 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
     });
     let uv0_buf = device.create_buffer_init(&BufferInitDescriptor {
         label: Some("uv0"),
-        contents: bytemuck::cast_slice(&scene_buffer.texcoord[0]),
+        contents: bytemuck::cast_slice(scene_buffer.texcoord.get(0).context(NoneErrSnafu)?),
         usage: wgpu::BufferUsages::VERTEX,
     });
 
@@ -105,14 +132,14 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
             let base_color = gltf_mat
                 .get(&MaterialKey::BaseColor)
                 .context(NoneErrSnafu)?;
-            let mat = MeshMaterial {
-                //TODO deal without image
-                base_color: base_color.image_id.context(NoneErrSnafu)?,
-                sampler: base_color.sampler,
-            };
+
+            let normal_matrix = Mat3::from_mat4(node.per_node_info.transform.inverse().transpose());
             let per_obj = PerObjData {
-                node: node.per_node_info,
-                mat,
+                transform: node.per_node_info.transform.to_cols_array_2d(),
+                normal_matrix: normal_matrix.to_cols_array_2d(),
+                _padding: [22.; 5],
+                base_color: base_color.image_id.context(NoneErrSnafu)? as u32,
+                sampler: base_color.sampler as u32,
             };
             per_obj_data.push(per_obj);
 
@@ -202,36 +229,41 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
         array_stride: size_of::<PerObjData>() as u64,
         step_mode: wgpu::VertexStepMode::Instance,
         attributes: &wgpu::vertex_attr_array![
-            8 => Float32x4,
-            9 => Float32x4,
-            10 => Float32x4,
-            11 => Float32x4,
-            12 => Uint32,
-            13 => Uint32,
+            8 => Uint32,
+            9 => Uint32,
+
+            14 => Float32x4,
+            15 => Float32x4,
+            16 => Float32x4,
+            17 => Float32x4,
+            18 => Float32x3,
+            19 => Float32x3,
+            20 => Float32x3,
         ],
     };
     // bind group layout
-    let tex_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: None,
-        entries: &[
-            wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                    multisampled: false,
+    let tex_bind_group_layout: wgpu::BindGroupLayout =
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: NonZeroU32::new(texture_view_vec.len() as u32),
                 },
-                count: NonZeroU32::new(texture_view_vec.len() as u32),
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 1,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                count: NonZeroU32::new(samplers.len() as u32),
-            },
-        ],
-    });
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: NonZeroU32::new(samplers.len() as u32),
+                },
+            ],
+        });
 
     let tex_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: None,
@@ -255,11 +287,52 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
         ],
     });
 
+    // Generate light data
+    let light_data = LightBuffer {
+        position: [2.0, -1., 2.0],
+        color: [0.7, 0.3, 0.4],
+        _padding: 0,
+        _padding2: 0,
+    };
+    let light_buf = device.create_buffer_init(&BufferInitDescriptor {
+        label: Some("light buffer"),
+        contents: bytemuck::cast_slice(&[light_data]),
+        usage: wgpu::BufferUsages::UNIFORM,
+    });
+
+    let light_bind_group_layout =
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+            label: None,
+        });
+
+    let light_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        layout: &light_bind_group_layout,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: light_buf.as_entire_binding(),
+        }],
+        label: None,
+    });
+
     let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
 
     let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Render Pipeline Layout"),
-        bind_group_layouts: &[&base_state.camera_bind_group_layout, &tex_bind_group_layout],
+        bind_group_layouts: &[
+            &base_state.camera_bind_group_layout,
+            &tex_bind_group_layout,
+            &light_bind_group_layout,
+        ],
         push_constant_ranges: &[],
     });
 
@@ -269,7 +342,12 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
         vertex: wgpu::VertexState {
             module: &shader,
             entry_point: "vs_main",
-            buffers: &[vertex_layout, object_layout, normal_layout, uv0_layout],
+            buffers: &[
+                vertex_layout.clone(),
+                object_layout,
+                normal_layout,
+                uv0_layout,
+            ],
         },
         primitive: wgpu::PrimitiveState {
             topology: wgpu::PrimitiveTopology::TriangleList,
@@ -304,6 +382,85 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
         }),
         multiview: None,
     });
+
+    let cube_path = format!("{}/../../assets/gltf/cube.glb", env!("CARGO_MANIFEST_DIR"));
+
+    let (scene_view, scene_buffer) = load_gltf(cube_path).context(GLTFErrSnafu)?;
+    let cube_pos = &scene_buffer.positions[scene_view.nodes[0].meshes[0].positions.clone()];
+    let cube_buffer = device.create_buffer_init(&BufferInitDescriptor {
+        label: Some("light debug cube pos"),
+        contents: cube_pos,
+        usage: wgpu::BufferUsages::VERTEX,
+    });
+    let cube_ind = &scene_buffer.index[scene_view.nodes[0].meshes[0].index.indices.clone()];
+    let cube_ind_buffer = device.create_buffer_init(&BufferInitDescriptor {
+        label: Some("light debug cube index"),
+        contents: cube_ind,
+        usage: wgpu::BufferUsages::INDEX,
+    });
+
+    let light_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("Light Pipeline Layout"),
+        bind_group_layouts: &[
+            &base_state.camera_bind_group_layout,
+            &light_bind_group_layout,
+        ],
+        push_constant_ranges: &[],
+    });
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("Light Shader"),
+        source: wgpu::ShaderSource::Wgsl(include_str!("light.wgsl").into()),
+    });
+
+    let light_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("Render Pipeline"),
+        layout: Some(&light_pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: "vs_main",
+            buffers: &[vertex_layout],
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: "fs_main",
+            targets: &[Some(wgpu::ColorTargetState {
+                format: base_state.config.format,
+                blend: Some(wgpu::BlendState {
+                    alpha: wgpu::BlendComponent::REPLACE,
+                    color: wgpu::BlendComponent::REPLACE,
+                }),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            strip_index_format: None,
+            front_face: wgpu::FrontFace::Ccw,
+            cull_mode: Some(wgpu::Face::Back),
+            // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
+            polygon_mode: wgpu::PolygonMode::Fill,
+            // Requires Features::DEPTH_CLIP_CONTROL
+            unclipped_depth: false,
+            // Requires Features::CONSERVATIVE_RASTERIZATION
+            conservative: false,
+        },
+        depth_stencil: Some(DepthStencilState {
+            format: texture::Texture::DEPTH_FORMAT,
+            depth_write_enabled: true,
+            depth_compare: wgpu::CompareFunction::Less,
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        }),
+        multisample: wgpu::MultisampleState {
+            count: 1,
+            mask: !0,
+            alpha_to_coverage_enabled: false,
+        },
+        // If the pipeline will be used with a multiview render pass, this
+        // indicates how many array layers the attachments will have.
+        multiview: None,
+    });
+
     let state = Box::new(State {
         render_pipeline,
         vertices: vert_buf,
@@ -314,9 +471,19 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
         obj_buf,
         indirect_buf,
         tex_bind_group,
+        light_buf,
+        light_bind_group,
+        light_pipeline,
+        cube_buf: cube_buffer,
+        cube_ind: cube_ind_buffer,
+        cube_ind_count: scene_view.nodes[0].meshes[0].index.count,
     });
     base_state.extra_state = Some(state);
 
+    Ok(())
+}
+
+fn tick(_state: &mut BaseState, _dt: Duration) -> Result<(), Error> {
     Ok(())
 }
 
@@ -343,9 +510,9 @@ fn render(base_state: &mut BaseState, _dt: Duration) -> Result<(), Error> {
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color {
-                        r: 1.0,
-                        g: 1.0,
-                        b: 1.0,
+                        r: 0.0,
+                        g: 0.0,
+                        b: 0.0,
                         a: 1.0,
                     }),
                     store: true,
@@ -367,6 +534,7 @@ fn render(base_state: &mut BaseState, _dt: Duration) -> Result<(), Error> {
         render_pass.set_pipeline(pipeline);
         render_pass.set_bind_group(0, &base_state.camera_bind_group, &[]);
         render_pass.set_bind_group(1, &state.tex_bind_group, &[]);
+        render_pass.set_bind_group(2, &state.light_bind_group, &[]);
 
         render_pass.set_vertex_buffer(0, state.vertices.slice(..));
         render_pass.set_vertex_buffer(1, state.obj_buf.slice(..));
@@ -376,6 +544,14 @@ fn render(base_state: &mut BaseState, _dt: Duration) -> Result<(), Error> {
         render_pass.set_index_buffer(state.index.slice(..), wgpu::IndexFormat::Uint16);
 
         render_pass.multi_draw_indexed_indirect(&state.indirect_buf, 0, state.obj_count as u32);
+
+        // Render light debug cube
+        render_pass.set_pipeline(&state.light_pipeline);
+        render_pass.set_bind_group(0, &base_state.camera_bind_group, &[]);
+        render_pass.set_bind_group(1, &state.light_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, state.cube_buf.slice(..));
+        render_pass.set_index_buffer(state.cube_ind.slice(..), wgpu::IndexFormat::Uint16);
+        render_pass.draw_indexed(0..state.cube_ind_count as u32, 0, 0..1);
     }
 
     // submit will accept anything that implements IntoIter
@@ -396,7 +572,7 @@ fn main() {
             )
         },
         init,
-        |_state, _dt| Ok(()),
+        tick,
         render,
     ))
 }

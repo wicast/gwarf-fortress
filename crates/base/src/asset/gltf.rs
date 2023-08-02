@@ -489,10 +489,11 @@ fn node_transform_to_matrix(n_transform: &NodeTransform) -> Mat4 {
             rotation,
             scale,
         } => {
-            let m = Mat4::from_translation(Vec3::from_slice(translation));
+            let scale = Mat4::from_scale(Vec3::from_slice(scale));
             let rot = Quat::from_array(*rotation);
-            let m = Mat4::from_quat(rot) * m;
-            Mat4::from_scale(Vec3::from_slice(scale)) * m
+            let m = Mat4::from_quat(rot) * scale;
+            let trans = Mat4::from_translation(Vec3::from_slice(translation));
+            trans * m
         }
     }
 }
