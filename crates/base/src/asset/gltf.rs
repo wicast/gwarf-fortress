@@ -59,6 +59,7 @@ pub struct GLTFBuffer {
     pub texcoord: Vec<Vec<u8>>,
     pub index: Vec<u8>,
     pub shared_data: Vec<u8>,
+    pub bi_tangent: Vec<u8>,
 }
 
 #[repr(C)]
@@ -79,13 +80,14 @@ pub struct Node {
 #[derive(Debug, Default)]
 pub struct Mesh {
     pub id: usize,
+    pub index: Index,
     pub vertex_count: usize,
     pub vertex_type_size: usize,
     pub positions: Range<usize>,
     pub normals: Option<Range<usize>>,
-    pub uv0: Option<Range<usize>>,
     pub tangents: Option<Range<usize>>,
-    pub index: Index,
+    pub bi_tangents: Option<Range<usize>>,
+    pub uv0: Option<Range<usize>>,
     pub mode: PrimitiveMode,
     pub mat: Option<usize>,
 }
@@ -137,10 +139,11 @@ pub enum MaterialKey {
     Other(String),
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct ImageData {
     pub range: Range<usize>,
     pub mime: String,
+    pub target_format: TextureFormat,
 }
 
 #[derive(Debug, Default)]
@@ -223,7 +226,7 @@ impl<'a, E: goth_gltf::Extensions, P: AsRef<Path>> ImageLoader<'a, E, P> {
     }
 
     fn load_texture(
-        &self,
+        &mut self,
         texture_info: &Option<SuperTextureInfo<E>>,
         color_factor: [f32; 4],
         key: MaterialKey,
@@ -231,7 +234,16 @@ impl<'a, E: goth_gltf::Extensions, P: AsRef<Path>> ImageLoader<'a, E, P> {
     ) -> Result<(), Error> {
         let tex_data = if let Some(texture_info) = texture_info {
             let texture = &self.gltf_info.textures[texture_info.index];
-            //TODO error
+            //HACK insert image target format
+            if key == MaterialKey::Normal {
+                if let Some(id) = texture.source {
+                    let img = &mut self.image_out[id];
+                    if img.mime != "ktx" {
+                        img.target_format = wgpu::TextureFormat::Rgba8Unorm;
+                    }
+                }
+            }
+
             TextureData {
                 image_id: texture.source,
                 factor: color_factor,
@@ -264,6 +276,7 @@ impl<'a, E: goth_gltf::Extensions, P: AsRef<Path>> ImageLoader<'a, E, P> {
             self.image_out.push(ImageData {
                 range,
                 mime: image.mime_type.clone().unwrap_or("image/png".to_string()),
+                target_format: wgpu::TextureFormat::Rgba8UnormSrgb,
             })
         }
         Ok(())
@@ -307,7 +320,15 @@ impl<'a, E: goth_gltf::Extensions> PrimitiveBufferReader<'a, E> {
     }
 }
 
-pub fn load_gltf<P: AsRef<Path>>(path: P) -> Result<(SceneView, GLTFBuffer), Error> {
+#[derive(Debug, Default)]
+pub struct LoadOption {
+    pub gen_tbn: bool,
+}
+
+pub fn load_gltf<P: AsRef<Path>>(
+    path: P,
+    option: LoadOption,
+) -> Result<(SceneView, GLTFBuffer), Error> {
     let gltf_bytes = std::fs::read(&path).context(FileReadFailedSnafu {
         path: path.as_ref().to_string_lossy(),
     })?;
@@ -385,7 +406,76 @@ pub fn load_gltf<P: AsRef<Path>>(path: P) -> Result<(SceneView, GLTFBuffer), Err
         scene_view_out.samplers.push(sampler.clone());
     }
 
+    if option.gen_tbn {
+        for node in scene_view_out.nodes.iter_mut() {
+            for mesh in node.meshes.iter_mut() {
+                mesh.gen_tbn(&mut gltf_buffer_out);
+            }
+        }
+    }
+
     Ok((scene_view_out, gltf_buffer_out))
+}
+
+impl Mesh {
+    fn gen_tbn(&mut self, buffer: &mut GLTFBuffer) {
+        let has_tangent = self.tangents.is_some();
+        let indices: Vec<[u32; 1]> = check_and_cast(&buffer.index, &self.index.indices);
+        let pos: Vec<[f32; 3]> = check_and_cast(&buffer.positions, &self.positions);
+        let uv: Vec<[f32; 2]> = check_and_cast(&buffer.texcoord[0], self.uv0.as_ref().unwrap());
+
+        let mut bi_tangent_buffer = vec![];
+        let mut tangent_buffer = vec![];
+        for c in indices.chunks(3) {
+            let i0 = c[0][0] as usize;
+            let i1 = c[1][0] as usize;
+            let i2 = c[2][0] as usize;
+
+            let pos0 = glam::Vec3::from_array(pos[i0]);
+            let pos1 = glam::Vec3::from_array(pos[i1]);
+            let pos2 = glam::Vec3::from_array(pos[i2]);
+
+            let uv0 = glam::Vec2::from_array(uv[i0]);
+            let uv1 = glam::Vec2::from_array(uv[i1]);
+            let uv2 = glam::Vec2::from_array(uv[i2]);
+
+            let delta_pos1 = pos1 - pos0;
+            let delta_pos2 = pos2 - pos0;
+
+            // This will give us a direction to calculate the
+            // tangent and bitangent
+            let delta_uv1 = uv1 - uv0;
+            let delta_uv2 = uv2 - uv0;
+
+            // Solving the following system of equations will
+            // give us the tangent and bitangent.
+            //     delta_pos1 = delta_uv1.x * T + delta_u.y * B
+            //     delta_pos2 = delta_uv2.x * T + delta_uv2.y * B
+            // Luckily, the place I found this equation provided
+            // the solution!
+            let r = 1.0 / (delta_uv1.x * delta_uv2.y - delta_uv1.y * delta_uv2.x);
+            if !has_tangent {
+                let tangent = (delta_pos1 * delta_uv2.y - delta_pos2 * delta_uv1.y) * r;
+                tangent_buffer.push(tangent.to_array());
+            }
+            // We flip the bitangent to enable right-handed normal
+            // maps with wgpu texture coordinate system
+            let bitangent = (delta_pos2 * delta_uv1.x - delta_pos1 * delta_uv2.x) * -r;
+
+            bi_tangent_buffer.push(bitangent.to_array());
+        }
+        let bi_tangent_buf = &mut buffer.bi_tangent;
+        let start = bi_tangent_buf.len();
+        bi_tangent_buf.extend(bytemuck::cast_slice(&bi_tangent_buffer));
+        self.bi_tangents = Some(start..bi_tangent_buf.len());
+
+        if !has_tangent {
+            let tangent_buf = &mut buffer.tangent;
+            let start = tangent_buf.len();
+            tangent_buf.extend(bytemuck::cast_slice(&tangent_buffer));
+            self.tangents = Some(start..tangent_buf.len());
+        }
+    }
 }
 
 fn load_model_buffers<P: AsRef<Path>>(
@@ -554,7 +644,7 @@ fn insert_node(
                 primitive_reader.get_raw_buffer(
                     primitive.indices.context(IndexTypeSnafu { mesh_id })?,
                     &mut output,
-        )?;
+                )?;
                 let index: Vec<[u16; 1]> = check_and_cast(&output, &(0..output.len()));
                 let new_indices: Vec<u32> = index.iter().map(|i| i[0] as u32).collect();
                 let count = new_indices.len();
@@ -570,7 +660,6 @@ fn insert_node(
 
         let index = Index {
             indices: raw_index_buffer.0,
-            r#type: index_accessor.component_type.try_into()?,
             count: raw_index_buffer.1,
             type_size: raw_index_buffer.2,
         };
@@ -616,6 +705,7 @@ fn insert_node(
             index,
             mode: primitive.mode,
             mat: primitive.material,
+            bi_tangents: None,
         };
 
         meshes_out.push(mesh_out);

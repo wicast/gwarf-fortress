@@ -4,7 +4,7 @@ use std::ops::Range;
 use std::time::Duration;
 
 use gf_base::{
-    asset::gltf::{load_gltf, MaterialKey, PerNodeBuffer},
+    asset::gltf::{load_gltf, LoadOption, MaterialKey, PerNodeBuffer},
     downcast_mut,
     glam::{Mat3, Mat4},
     image::GenericImageView,
@@ -22,10 +22,12 @@ use gf_base::{
 
 struct State {
     render_pipeline: wgpu::RenderPipeline,
+    index: wgpu::Buffer,
     vertices: wgpu::Buffer,
     normal: wgpu::Buffer,
     uv0: wgpu::Buffer,
-    index: wgpu::Buffer,
+    tangent: wgpu::Buffer,
+    bi_tangent: wgpu::Buffer,
     obj_count: usize,
     obj_buf: wgpu::Buffer,
     indirect_buf: wgpu::Buffer,
@@ -45,9 +47,11 @@ impl StateDynObj for State {}
 struct PerObjData {
     base_color: u32,
     sampler: u32,
+    normal: u32,
+    normal_sampler: u32,
     pub transform: [[f32; 4]; 4],
     pub normal_matrix: [[f32; 3]; 3],
-    _padding: [f32; 5],
+    _padding: [f32; 3],
 }
 
 #[repr(C)]
@@ -92,7 +96,8 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
         env!("CARGO_MANIFEST_DIR")
     );
 
-    let (scene_view, scene_buffer) = load_gltf(&path).context(GLTFErrSnafu)?;
+    let (scene_view, scene_buffer) =
+        load_gltf(&path, LoadOption { gen_tbn: true }).context(GLTFErrSnafu)?;
 
     let vert_buf = device.create_buffer_init(&BufferInitDescriptor {
         label: Some("vertex"),
@@ -114,6 +119,16 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
         contents: bytemuck::cast_slice(scene_buffer.texcoord.get(0).context(NoneErrSnafu)?),
         usage: wgpu::BufferUsages::VERTEX,
     });
+    let tangent_buf = device.create_buffer_init(&BufferInitDescriptor {
+        label: Some("tangent"),
+        contents: bytemuck::cast_slice(&scene_buffer.tangent),
+        usage: wgpu::BufferUsages::VERTEX,
+    });
+    let bi_tangent_buf = device.create_buffer_init(&BufferInitDescriptor {
+        label: Some("bi_tangent"),
+        contents: bytemuck::cast_slice(&scene_buffer.bi_tangent),
+        usage: wgpu::BufferUsages::VERTEX,
+    });
 
     let mut indirect = Vec::new();
 
@@ -125,21 +140,24 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
                 vertex_count: mesh.index.count as u32,
                 instance_count: 1,
                 base_index: (mesh.index.indices.start / mesh.index.type_size) as u32,
-                vertex_offset: (mesh.positions.start / mesh.vertex_size) as i32,
+                vertex_offset: (mesh.positions.start / mesh.vertex_type_size) as i32,
                 base_instance: obj_count,
             });
             let gltf_mat = &scene_view.materials[mesh.mat.context(NoneErrSnafu)?];
             let base_color = gltf_mat
                 .get(&MaterialKey::BaseColor)
                 .context(NoneErrSnafu)?;
+            let normal_tex = gltf_mat.get(&MaterialKey::Normal).context(NoneErrSnafu)?;
 
             let normal_matrix = Mat3::from_mat4(node.per_node_info.transform.inverse().transpose());
             let per_obj = PerObjData {
                 transform: node.per_node_info.transform.to_cols_array_2d(),
                 normal_matrix: normal_matrix.to_cols_array_2d(),
-                _padding: [22.; 5],
+                _padding: [22.; 3],
                 base_color: base_color.image_id.context(NoneErrSnafu)? as u32,
                 sampler: base_color.sampler as u32,
+                normal: normal_tex.image_id.context(NoneErrSnafu)? as u32,
+                normal_sampler: normal_tex.sampler as u32,
             };
             per_obj_data.push(per_obj);
 
@@ -153,6 +171,7 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
         usage: wgpu::BufferUsages::VERTEX,
     });
 
+    //TODO normal texture, need refactor
     let mut texture_view_vec = vec![];
     for img_info in &scene_view.images {
         let color_source_data = &scene_buffer.shared_data[img_info.range.clone()];
@@ -173,7 +192,7 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                format: img_info.target_format,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING,
                 view_formats: &[],
             },
@@ -225,12 +244,29 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
             2 => Float32x2,
         ],
     };
+    let tangent_layout = wgpu::VertexBufferLayout {
+        array_stride: Float32x2.size(),
+        step_mode: wgpu::VertexStepMode::Vertex,
+        attributes: &wgpu::vertex_attr_array![
+            3 => Float32x3,
+        ],
+    };
+    let bi_tangent_layout = wgpu::VertexBufferLayout {
+        array_stride: Float32x2.size(),
+        step_mode: wgpu::VertexStepMode::Vertex,
+        attributes: &wgpu::vertex_attr_array![
+            4 => Float32x3,
+        ],
+    };
+
     let object_layout = wgpu::VertexBufferLayout {
         array_stride: size_of::<PerObjData>() as u64,
         step_mode: wgpu::VertexStepMode::Instance,
         attributes: &wgpu::vertex_attr_array![
             8 => Uint32,
             9 => Uint32,
+            10 => Uint32,
+            11 => Uint32,
 
             14 => Float32x4,
             15 => Float32x4,
@@ -289,7 +325,7 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
 
     // Generate light data
     let light_data = LightBuffer {
-        position: [2.0, -1., 2.0],
+        position: [1.0, 0., 1.0],
         color: [0.7, 0.3, 0.4],
         _padding: 0,
         _padding2: 0,
@@ -347,6 +383,8 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
                 object_layout,
                 normal_layout,
                 uv0_layout,
+                tangent_layout,
+                bi_tangent_layout,
             ],
         },
         primitive: wgpu::PrimitiveState {
@@ -385,7 +423,8 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
 
     let cube_path = format!("{}/../../assets/gltf/cube.glb", env!("CARGO_MANIFEST_DIR"));
 
-    let (scene_view, scene_buffer) = load_gltf(cube_path).context(GLTFErrSnafu)?;
+    let (scene_view, scene_buffer) =
+        load_gltf(cube_path, Default::default()).context(GLTFErrSnafu)?;
     let cube_pos = &scene_buffer.positions[scene_view.nodes[0].meshes[0].positions.clone()];
     let cube_buffer = device.create_buffer_init(&BufferInitDescriptor {
         label: Some("light debug cube pos"),
@@ -477,6 +516,8 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
         cube_buf: cube_buffer,
         cube_ind: cube_ind_buffer,
         cube_ind_count: scene_view.nodes[0].meshes[0].index.count,
+        tangent: tangent_buf,
+        bi_tangent: bi_tangent_buf,
     });
     base_state.extra_state = Some(state);
 
@@ -540,6 +581,8 @@ fn render(base_state: &mut BaseState, _dt: Duration) -> Result<(), Error> {
         render_pass.set_vertex_buffer(1, state.obj_buf.slice(..));
         render_pass.set_vertex_buffer(2, state.normal.slice(..));
         render_pass.set_vertex_buffer(3, state.uv0.slice(..));
+        render_pass.set_vertex_buffer(4, state.tangent.slice(..));
+        render_pass.set_vertex_buffer(5, state.bi_tangent.slice(..));
 
         render_pass.set_index_buffer(state.index.slice(..), wgpu::IndexFormat::Uint32);
 
@@ -584,7 +627,7 @@ fn test_gltf_loader() {
         env!("CARGO_MANIFEST_DIR")
     );
 
-    let (scene_view, scene_buffer) = match load_gltf(&path) {
+    let (scene_view, scene_buffer) = match load_gltf(&path, Default::default()) {
         Ok(scene) => scene,
         Err(e) => {
             eprintln!("An error occurred: {}", e);
@@ -622,7 +665,7 @@ fn test_gltf_loader() {
         env!("CARGO_MANIFEST_DIR")
     );
 
-    let (scene_view, scene_buffer) = match load_gltf(&path) {
+    let (scene_view, scene_buffer) = match load_gltf(&path, Default::default()) {
         Ok(scene) => scene,
         Err(e) => {
             eprintln!("An error occurred: {}", e);
