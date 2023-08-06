@@ -541,7 +541,7 @@ fn render(base_state: &mut BaseState, _dt: Duration) -> Result<(), Error> {
         render_pass.set_vertex_buffer(2, state.normal.slice(..));
         render_pass.set_vertex_buffer(3, state.uv0.slice(..));
 
-        render_pass.set_index_buffer(state.index.slice(..), wgpu::IndexFormat::Uint16);
+        render_pass.set_index_buffer(state.index.slice(..), wgpu::IndexFormat::Uint32);
 
         render_pass.multi_draw_indexed_indirect(&state.indirect_buf, 0, state.obj_count as u32);
 
@@ -550,7 +550,7 @@ fn render(base_state: &mut BaseState, _dt: Duration) -> Result<(), Error> {
         render_pass.set_bind_group(0, &base_state.camera_bind_group, &[]);
         render_pass.set_bind_group(1, &state.light_bind_group, &[]);
         render_pass.set_vertex_buffer(0, state.cube_buf.slice(..));
-        render_pass.set_index_buffer(state.cube_ind.slice(..), wgpu::IndexFormat::Uint16);
+        render_pass.set_index_buffer(state.cube_ind.slice(..), wgpu::IndexFormat::Uint32);
         render_pass.draw_indexed(0..state.cube_ind_count as u32, 0, 0..1);
     }
 
@@ -600,20 +600,20 @@ fn test_gltf_loader() {
         scene_view.nodes[1].meshes[0].positions.clone(),
     );
 
-    match scene_view.nodes[1].meshes[0].index.r#type {
-        gf_base::asset::gltf::IndexType::U16 => {
-            let index: Vec<[u16; 1]> = check_cast(
-                &scene_buffer.index,
-                scene_view.nodes[1].meshes[0].index.indices.clone(),
-            );
-        }
-        gf_base::asset::gltf::IndexType::U32 => {
-            let index: Vec<[u32; 1]> = check_cast(
-                &scene_buffer.index,
-                scene_view.nodes[1].meshes[0].index.indices.clone(),
-            );
-        }
-    }
+    // match scene_view.nodes[1].meshes[0].index.r#type {
+    //     gf_base::asset::gltf::IndexType::U16 => {
+    //         let index: Vec<[u16; 1]> = check_cast(
+    //             &scene_buffer.index,
+    //             scene_view.nodes[1].meshes[0].index.indices.clone(),
+    //         );
+    //     }
+    //     gf_base::asset::gltf::IndexType::U32 => {
+    //         let index: Vec<[u32; 1]> = check_cast(
+    //             &scene_buffer.index,
+    //             scene_view.nodes[1].meshes[0].index.indices.clone(),
+    //         );
+    //     }
+    // }
 
     println!("simple two mat 0: {:?}", scene_view.materials[0]);
 

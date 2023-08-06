@@ -8,6 +8,7 @@ use goth_gltf::{
 };
 use goth_gltf::{Gltf, NodeTransform, PrimitiveMode, TextureInfo};
 use snafu::{Backtrace, OptionExt, ResultExt, Snafu};
+use wgpu::TextureFormat;
 
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -25,11 +26,17 @@ pub enum Error {
     },
     UnsupportedIndexType,
     FailedGetBuffer,
+    NoneErr {
+        backtrace: Backtrace,
+    },
     NoPositionFound {
         mesh_id: usize,
         backtrace: Backtrace,
     },
     NoIndexFound {
+        mesh_id: usize,
+    },
+    IndexTypeError {
         mesh_id: usize,
     },
 
@@ -73,7 +80,7 @@ pub struct Node {
 pub struct Mesh {
     pub id: usize,
     pub vertex_count: usize,
-    pub vertex_size: usize,
+    pub vertex_type_size: usize,
     pub positions: Range<usize>,
     pub normals: Option<Range<usize>>,
     pub uv0: Option<Range<usize>>,
@@ -86,7 +93,6 @@ pub struct Mesh {
 #[derive(Debug, Default)]
 pub struct Index {
     pub indices: Range<usize>,
-    pub r#type: IndexType,
     pub count: usize,
     pub type_size: usize,
 }
@@ -537,10 +543,31 @@ fn insert_node(
 
         let index_accessor =
             &gltf_info.accessors[primitive.indices.context(NoIndexFoundSnafu { mesh_id })?];
-        let raw_index_buffer = primitive_reader.get_raw_buffer(
-            primitive.indices.context(NoIndexFoundSnafu { mesh_id })?,
-            &mut gltf_buffer_out.index,
+
+        let raw_index_buffer = match index_accessor.component_type {
+            ComponentType::UnsignedInt => primitive_reader.get_raw_buffer(
+                primitive.indices.context(NoIndexFoundSnafu { mesh_id })?,
+                &mut gltf_buffer_out.index,
+            )?,
+            ComponentType::UnsignedShort => {
+                let mut output = vec![];
+                primitive_reader.get_raw_buffer(
+                    primitive.indices.context(IndexTypeSnafu { mesh_id })?,
+                    &mut output,
         )?;
+                let index: Vec<[u16; 1]> = check_and_cast(&output, &(0..output.len()));
+                let new_indices: Vec<u32> = index.iter().map(|i| i[0] as u32).collect();
+                let count = new_indices.len();
+                let type_size = 4;
+                let buffer_start = gltf_buffer_out.index.len();
+                gltf_buffer_out
+                    .index
+                    .extend(bytemuck::cast_slice(&new_indices));
+                (buffer_start..gltf_buffer_out.index.len(), count, type_size)
+            }
+            _ => return Err(Error::NoIndexFound { mesh_id }),
+        };
+
         let index = Index {
             indices: raw_index_buffer.0,
             r#type: index_accessor.component_type.try_into()?,
@@ -557,7 +584,7 @@ fn insert_node(
         let mesh_out = Mesh {
             id: mesh_id,
             vertex_count: positions.1,
-            vertex_size: positions.2,
+            vertex_type_size: positions.2,
             positions: positions.0,
             normals: primitive
                 .attributes
@@ -616,4 +643,14 @@ fn insert_node(
     scene_view_out.nodes.insert(*node_id, node_out);
 
     Ok(())
+}
+
+pub fn check_and_cast<T: Copy + bytemuck::Pod, const N: usize>(
+    scene_buffer: &[u8],
+    range: &Range<usize>,
+) -> Vec<[T; N]> {
+    bytemuck::cast_slice(&scene_buffer[range.clone()])
+        .chunks(N)
+        .map(|slice| <[T; N]>::try_from(slice).unwrap())
+        .collect()
 }
