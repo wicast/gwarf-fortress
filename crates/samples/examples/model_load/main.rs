@@ -92,7 +92,7 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
     //     env!("CARGO_MANIFEST_DIR")
     // );
     let path = format!(
-        "{}/../../assets/gltf/FlightHelmet/FlightHelmet.gltf",
+        "{}/../../assets/gltf/glTF-Sample-Models/2.0/FlightHelmet/glTF/FlightHelmet.gltf",
         env!("CARGO_MANIFEST_DIR")
     );
 
