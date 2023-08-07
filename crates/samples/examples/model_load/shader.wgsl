@@ -23,7 +23,7 @@ struct UV {
 }
 
 struct Tangent {
-    @location(3) tangent: vec3<f32>,
+    @location(3) tangent: vec4<f32>,
 }
 
 struct BiTangent {
@@ -40,22 +40,22 @@ struct PerObjInput {
     @location(15) model_mat_1: vec4<f32>,
     @location(16) model_mat_2: vec4<f32>,
     @location(17) model_mat_3: vec4<f32>,
-    @location(18) normal_mat_0: vec3<f32>,
-    @location(19) normal_mat_1: vec3<f32>,
-    @location(20) normal_mat_2: vec3<f32>,
 }
 
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
-    @location(1) uv0: vec2<f32>,
-    @location(2) tangent_world_pos: vec3<f32>,
-    @location(3) tangent_view_pos: vec3<f32>,
-    @location(4) tangent_light_pos: vec3<f32>,
+    @location(0) uv0: vec2<f32>,
+    @location(1) tangent_world_pos: vec3<f32>,
+    @location(2) tangent_view_pos: vec3<f32>,
+    @location(3) tangent_light_pos: vec3<f32>,
+
     @location(8) base_color: u32,
     @location(9) base_color_sampler: u32,
     @location(10) normal_map: u32,
     @location(11) normal_sampler: u32,
+
+    @location(30) debug_vec3: vec3<f32>,
 };
 
 @vertex
@@ -65,14 +65,16 @@ fn vs_main(
     normal: Normal,
     uv: UV,
     tangent: Tangent,
-    bi_tangent: BiTangent,
 ) -> VertexOutput {
     var out: VertexOutput;
 
     let model_mat = mat4x4<f32>(obj.model_mat_0, obj.model_mat_1, obj.model_mat_2, obj.model_mat_3);
-    let normal_mat = mat3x3<f32>(obj.normal_mat_0, obj.normal_mat_1, obj.normal_mat_2);
 
-    let tbn = transpose(mat3x3<f32>(normalize(normal_mat * tangent.tangent), normalize(normal_mat * bi_tangent.bi_tangent), normalize(normal_mat * normal.normal)));
+    let a_normal = normalize((model_mat * vec4<f32>(normal.normal, 1.0)).xyz);
+    var a_tangent = normalize((model_mat * tangent.tangent)).xyz;
+    let a_bi_tangent = normalize(cross(a_normal, a_tangent) * tangent.tangent.z);
+
+    let tbn = transpose(mat3x3<f32>(a_tangent.xyz, a_bi_tangent, a_normal));
 
     let obj_pos = (model_mat * vec4<f32>(vert.position, 1.0));
     out.clip_position = camera.view_proj * obj_pos;
@@ -85,6 +87,8 @@ fn vs_main(
     out.base_color_sampler = obj.base_color_sampler;
     out.normal_map = obj.normal;
     out.normal_sampler = obj.normal_sampler;
+
+    out.debug_vec3 = a_tangent.xyz;
     return out;
 }
 

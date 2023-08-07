@@ -39,6 +39,9 @@ pub enum Error {
     IndexTypeError {
         mesh_id: usize,
     },
+    UTF8Err {
+        source: std::string::FromUtf8Error,
+    },
 
     FailedToGetU8Data,
 }
@@ -456,7 +459,7 @@ impl Mesh {
             let r = 1.0 / (delta_uv1.x * delta_uv2.y - delta_uv1.y * delta_uv2.x);
             if !has_tangent {
                 let tangent = (delta_pos1 * delta_uv2.y - delta_pos2 * delta_uv1.y) * r;
-                tangent_buffer.push(tangent.to_array());
+                tangent_buffer.push(tangent.extend(1.0).to_array());
             }
             // We flip the bitangent to enable right-handed normal
             // maps with wgpu texture coordinate system
@@ -603,7 +606,7 @@ fn read_uri_data(uri: &str, path: impl AsRef<Path>) -> Result<Vec<u8>, Error> {
             .context(Base64DecodeFailedSnafu)
     } else {
         let mut path = std::path::PathBuf::from(path.as_ref());
-        path.set_file_name(uri);
+        path.set_file_name(urlencoding::decode(uri).context(UTF8ErrSnafu)?.into_owned());
         std::fs::read(&path).context(FileReadFailedSnafu {
             path: path.to_string_lossy(),
         })

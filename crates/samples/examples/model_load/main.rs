@@ -1,7 +1,7 @@
-use std::mem::size_of;
 use std::num::NonZeroU32;
 use std::ops::Range;
 use std::time::Duration;
+use std::{fmt::format, mem::size_of};
 
 use gf_base::{
     asset::gltf::{load_gltf, LoadOption, MaterialKey, PerNodeBuffer},
@@ -50,8 +50,6 @@ struct PerObjData {
     normal: u32,
     normal_sampler: u32,
     pub transform: [[f32; 4]; 4],
-    pub normal_matrix: [[f32; 3]; 3],
-    _padding: [f32; 3],
 }
 
 #[repr(C)]
@@ -82,6 +80,8 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
     let device = &base_state.device;
     let queue = &base_state.queue;
 
+    base_state.camera.position = gf_base::glam::Vec3::from([0.0, 4.0, 5.0]);
+
     // Prepare buffers
     let path = format!(
         "{}/../../assets/gltf/simple_two.glb",
@@ -95,6 +95,16 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
         "{}/../../assets/gltf/glTF-Sample-Models/2.0/FlightHelmet/glTF/FlightHelmet.gltf",
         env!("CARGO_MANIFEST_DIR")
     );
+
+    let path = format!(
+        "{}/../../assets/gltf/glTF-Sample-Models/2.0/BarramundiFish/glTF/BarramundiFish.gltf",
+        env!("CARGO_MANIFEST_DIR")
+    );
+
+    // let path = format!(
+    //     "{}/../../assets/gltf/glTF-Sample-Models/2.0/Box With Spaces/glTF/Box With Spaces.gltf",
+    //     env!("CARGO_MANIFEST_DIR")
+    // );
 
     let (scene_view, scene_buffer) =
         load_gltf(&path, LoadOption { gen_tbn: true }).context(GLTFErrSnafu)?;
@@ -149,11 +159,8 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
                 .context(NoneErrSnafu)?;
             let normal_tex = gltf_mat.get(&MaterialKey::Normal).context(NoneErrSnafu)?;
 
-            let normal_matrix = Mat3::from_mat4(node.per_node_info.transform.inverse().transpose());
             let per_obj = PerObjData {
                 transform: node.per_node_info.transform.to_cols_array_2d(),
-                normal_matrix: normal_matrix.to_cols_array_2d(),
-                _padding: [22.; 3],
                 base_color: base_color.image_id.context(NoneErrSnafu)? as u32,
                 sampler: base_color.sampler as u32,
                 normal: normal_tex.image_id.context(NoneErrSnafu)? as u32,
@@ -208,6 +215,14 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
         let wgpu_sampler = device.create_sampler(&desc);
         samplers.push(wgpu_sampler);
     }
+    if samplers.is_empty() {
+        let desc = wgpu::SamplerDescriptor {
+            label: Some("Default Sampler"),
+            ..Default::default()
+        };
+        let wgpu_sampler = device.create_sampler(&desc);
+        samplers.push(wgpu_sampler);
+    }
 
     let indirect: Vec<u8> = indirect
         .iter()
@@ -245,14 +260,14 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
         ],
     };
     let tangent_layout = wgpu::VertexBufferLayout {
-        array_stride: Float32x2.size(),
+        array_stride: Float32x4.size(),
         step_mode: wgpu::VertexStepMode::Vertex,
         attributes: &wgpu::vertex_attr_array![
-            3 => Float32x3,
+            3 => Float32x4,
         ],
     };
     let bi_tangent_layout = wgpu::VertexBufferLayout {
-        array_stride: Float32x2.size(),
+        array_stride: Float32x3.size(),
         step_mode: wgpu::VertexStepMode::Vertex,
         attributes: &wgpu::vertex_attr_array![
             4 => Float32x3,
@@ -272,9 +287,6 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
             15 => Float32x4,
             16 => Float32x4,
             17 => Float32x4,
-            18 => Float32x3,
-            19 => Float32x3,
-            20 => Float32x3,
         ],
     };
     // bind group layout
@@ -325,8 +337,9 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
 
     // Generate light data
     let light_data = LightBuffer {
-        position: [1.0, 0., 1.0],
-        color: [0.7, 0.3, 0.4],
+        // position: [-0., 2.3, -0.3],
+        position: [-0.4, 0.1, -0.3],
+        color: [1.0; 3],
         _padding: 0,
         _padding2: 0,
     };
