@@ -23,7 +23,7 @@ struct Tangent {
 struct PerObjInput {
     @location(8) base_color: u32,
     @location(9) base_color_sampler: u32,
-    @location(10) normal: u32,
+    @location(10) normal_map: u32,
     @location(11) normal_sampler: u32,
     @location(12) metallic_map: u32,
     @location(13) metallic_sampler: u32,
@@ -76,7 +76,7 @@ fn vs_main(
 
     out.base_color = obj.base_color;
     out.base_color_sampler = obj.base_color_sampler;
-    out.normal_map = obj.normal;
+    out.normal_map = obj.normal_map;
     out.normal_sampler = obj.normal_sampler;
     out.metallic_map = obj.metallic_map;
     out.metallic_sampler = obj.metallic_sampler;
