@@ -144,6 +144,7 @@ pub enum MaterialKey {
 
 #[derive(Debug)]
 pub struct ImageData {
+    pub name: Option<String>,
     pub range: Range<usize>,
     pub mime: String,
     pub target_format: TextureFormat,
@@ -277,6 +278,7 @@ impl<'a, E: goth_gltf::Extensions, P: AsRef<Path>> ImageLoader<'a, E, P> {
                 return Err(Error::FailedGetBuffer);
             };
             self.image_out.push(ImageData {
+                name: image.name.clone().or(image.uri.clone()),
                 range,
                 mime: image.mime_type.clone().unwrap_or("image/png".to_string()),
                 target_format: wgpu::TextureFormat::Rgba8UnormSrgb,

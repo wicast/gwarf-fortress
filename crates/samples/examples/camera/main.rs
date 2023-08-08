@@ -179,5 +179,5 @@ fn render(base_state: &mut BaseState, dt: Duration) -> Result<(), Error> {
 }
 
 fn main() {
-    pollster::block_on(run(default_configs, init, |state, dt| Ok(()), render))
+    pollster::block_on(run(default_configs, init, |state, dt| Ok(()), render, None))
 }

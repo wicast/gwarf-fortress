@@ -31,6 +31,7 @@ type GetConfigFn = fn() -> (wgpu::Backends, wgpu::Features);
 type InitFn = fn(state: &mut BaseState) -> Result<(), Error>;
 type TickFn = fn(state: &mut BaseState, dt: Duration) -> Result<(), Error>;
 type RenderFn = fn(state: &mut BaseState, dt: Duration) -> Result<(), Error>;
+type ResizeFn = fn(state: &mut BaseState, new_size: winit::dpi::PhysicalSize<u32>);
 
 pub fn default_configs() -> (wgpu::Backends, wgpu::Features) {
     (wgpu::Backends::all(), wgpu::Features::empty())
@@ -72,6 +73,7 @@ pub struct BaseState {
     pub extra_state: Option<Box<dyn StateDynObj>>,
     pub render_fn: RenderFn,
     pub tick_fn: TickFn,
+    pub resize_fn: Option<ResizeFn>,
 }
 
 impl BaseState {
@@ -82,6 +84,7 @@ impl BaseState {
         init_fn: InitFn,
         tick_fn: TickFn,
         render_fn: RenderFn,
+        resize_fn: Option<ResizeFn>,
     ) -> Self {
         let (backends, features) = config_fn();
 
@@ -185,7 +188,7 @@ impl BaseState {
             });
 
         let depth_texture =
-            texture::Texture::create_depth_texture(&device, &config, "depth_texture");
+            texture::Texture::create_depth_texture(&device, &config, "depth_texture", false);
 
         let mut base_state = Self {
             window,
@@ -205,6 +208,7 @@ impl BaseState {
             camera_buffer,
             camera_bind_group_layout,
             depth: depth_texture,
+            resize_fn,
         };
         //TODO deal with error
         let init_result = init_fn(&mut base_state);
@@ -224,8 +228,16 @@ impl BaseState {
             self.surface.configure(&self.device, &self.config);
             self.camera.proj.resize(new_size.width, new_size.height);
         }
-        self.depth =
-            texture::Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
+        self.depth = texture::Texture::create_depth_texture(
+            &self.device,
+            &self.config,
+            "depth_texture",
+            false,
+        );
+
+        if let Some(f) = self.resize_fn {
+            f(self, new_size);
+        }
     }
 
     fn input(&mut self, event: &WindowEvent) -> bool {
@@ -255,7 +267,7 @@ impl BaseState {
         }
     }
 
-    fn tick(&mut self, dt: Duration) -> Result<(), Error>{
+    fn tick(&mut self, dt: Duration) -> Result<(), Error> {
         self.camera_controller.update_camera(&mut self.camera, dt);
         self.camera_uniform.update_view_proj(&self.camera);
         self.queue.write_buffer(
@@ -271,13 +283,19 @@ impl BaseState {
     }
 }
 
-pub async fn run(config_fn: GetConfigFn, init_fn: InitFn, tick_fn: TickFn, render_fn: RenderFn) {
+pub async fn run(
+    config_fn: GetConfigFn,
+    init_fn: InitFn,
+    tick_fn: TickFn,
+    render_fn: RenderFn,
+    resize_fn: Option<ResizeFn>,
+) {
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new().build(&event_loop).unwrap();
     let mut last_render_time = std::time::Instant::now();
 
-    let mut state = BaseState::new(window, config_fn, init_fn, tick_fn, render_fn).await;
+    let mut state = BaseState::new(window, config_fn, init_fn, tick_fn, render_fn, resize_fn).await;
     event_loop.run(move |event, _, control_flow| {
         match event {
             Event::DeviceEvent {
