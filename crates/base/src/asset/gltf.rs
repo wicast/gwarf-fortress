@@ -48,7 +48,7 @@ pub enum Error {
 
 #[derive(Debug, Default)]
 pub struct SceneView {
-    pub nodes: Vec<Node>,
+    pub nodes: BTreeMap<usize, Node>,
     pub materials: Vec<Material>,
     pub images: Vec<ImageData>,
     pub samplers: Vec<Sampler>,
@@ -413,7 +413,7 @@ pub fn load_gltf<P: AsRef<Path>>(
 
     if option.gen_tbn {
         for node in scene_view_out.nodes.iter_mut() {
-            for mesh in node.meshes.iter_mut() {
+            for mesh in node.1.meshes.iter_mut() {
                 mesh.gen_tbn(&mut gltf_buffer_out);
             }
         }
@@ -624,104 +624,110 @@ fn insert_node(
     parent: &Node,
 ) -> Result<(), Error> {
     let node: &goth_gltf::Node<default_extensions::Extensions> = &gltf_info.nodes[*node_id];
-    let mesh_id = match node.mesh {
-        Some(id) => id,
-        //TODO error?
-        None => return Ok(()),
-    };
     let transform = node_transform_to_matrix(&node.transform());
-    let mesh = &gltf_info.meshes[mesh_id];
-
-    let mut meshes_out = Vec::new();
-    for primitive in &mesh.primitives {
-        let mut primitive_reader = PrimitiveBufferReader::new(gltf_info, buffer_map);
-
-        let index_accessor =
-            &gltf_info.accessors[primitive.indices.context(NoIndexFoundSnafu { mesh_id })?];
-
-        let raw_index_buffer = match index_accessor.component_type {
-            ComponentType::UnsignedInt => primitive_reader.get_raw_buffer(
-                primitive.indices.context(NoIndexFoundSnafu { mesh_id })?,
-                &mut gltf_buffer_out.index,
-            )?,
-            ComponentType::UnsignedShort => {
-                let mut output = vec![];
-                primitive_reader.get_raw_buffer(
-                    primitive.indices.context(IndexTypeSnafu { mesh_id })?,
-                    &mut output,
-                )?;
-                let index: Vec<[u16; 1]> = check_and_cast(&output, &(0..output.len()));
-                let new_indices: Vec<u32> = index.iter().map(|i| i[0] as u32).collect();
-                let count = new_indices.len();
-                let type_size = 4;
-                let buffer_start = gltf_buffer_out.index.len();
-                gltf_buffer_out
-                    .index
-                    .extend(bytemuck::cast_slice(&new_indices));
-                (buffer_start..gltf_buffer_out.index.len(), count, type_size)
-            }
-            _ => return Err(Error::NoIndexFound { mesh_id }),
-        };
-
-        let index = Index {
-            indices: raw_index_buffer.0,
-            count: raw_index_buffer.1,
-            type_size: raw_index_buffer.2,
-        };
-        let positions = primitive_reader.get_raw_buffer(
-            primitive
-                .attributes
-                .position
-                .context(NoPositionFoundSnafu { mesh_id })?,
-            &mut gltf_buffer_out.positions,
-        )?;
-        let mesh_out = Mesh {
-            id: mesh_id,
-            vertex_count: positions.1,
-            vertex_type_size: positions.2,
-            positions: positions.0,
-            normals: primitive
-                .attributes
-                .normal
-                .and_then(|normal| {
-                    primitive_reader
-                        .get_raw_buffer(normal, &mut gltf_buffer_out.normal)
-                        .ok()
-                })
-                .map(|i| i.0),
-            uv0: primitive
-                .attributes
-                .texcoord_0
-                .and_then(|texcoord| {
-                    gltf_buffer_out.texcoord.resize(1, Default::default());
-                    let tex_buffer = gltf_buffer_out.texcoord.get_mut(0)?;
-                    primitive_reader.get_raw_buffer(texcoord, tex_buffer).ok()
-                })
-                .map(|i| i.0),
-            tangents: primitive
-                .attributes
-                .tangent
-                .and_then(|tangent| {
-                    primitive_reader
-                        .get_raw_buffer(tangent, &mut gltf_buffer_out.tangent)
-                        .ok()
-                })
-                .map(|i| i.0),
-            index,
-            mode: primitive.mode,
-            mat: primitive.material,
-            bi_tangents: None,
-        };
-
-        meshes_out.push(mesh_out);
-    }
-
     let transform = transform * parent.per_node_info.transform;
-    let node_out = Node {
-        id: *node_id,
-        per_node_info: PerNodeBuffer { transform },
-        meshes: meshes_out,
-        ..Default::default()
+
+    let node_out = if let Some(mesh_id) = node.mesh {
+        let mesh = &gltf_info.meshes[mesh_id];
+
+        let mut meshes_out = Vec::new();
+        for primitive in &mesh.primitives {
+            let mut primitive_reader = PrimitiveBufferReader::new(gltf_info, buffer_map);
+
+            let index_accessor =
+                &gltf_info.accessors[primitive.indices.context(NoIndexFoundSnafu { mesh_id })?];
+
+            let raw_index_buffer = match index_accessor.component_type {
+                ComponentType::UnsignedInt => primitive_reader.get_raw_buffer(
+                    primitive.indices.context(NoIndexFoundSnafu { mesh_id })?,
+                    &mut gltf_buffer_out.index,
+                )?,
+                ComponentType::UnsignedShort => {
+                    let mut output = vec![];
+                    primitive_reader.get_raw_buffer(
+                        primitive.indices.context(IndexTypeSnafu { mesh_id })?,
+                        &mut output,
+                    )?;
+                    let index: Vec<[u16; 1]> = check_and_cast(&output, &(0..output.len()));
+                    let new_indices: Vec<u32> = index.iter().map(|i| i[0] as u32).collect();
+                    let count = new_indices.len();
+                    let type_size = 4;
+                    let buffer_start = gltf_buffer_out.index.len();
+                    gltf_buffer_out
+                        .index
+                        .extend(bytemuck::cast_slice(&new_indices));
+                    (buffer_start..gltf_buffer_out.index.len(), count, type_size)
+                }
+                _ => return Err(Error::NoIndexFound { mesh_id }),
+            };
+
+            let index = Index {
+                indices: raw_index_buffer.0,
+                count: raw_index_buffer.1,
+                type_size: raw_index_buffer.2,
+            };
+            let positions = primitive_reader.get_raw_buffer(
+                primitive
+                    .attributes
+                    .position
+                    .context(NoPositionFoundSnafu { mesh_id })?,
+                &mut gltf_buffer_out.positions,
+            )?;
+            let mesh_out = Mesh {
+                id: mesh_id,
+                vertex_count: positions.1,
+                vertex_type_size: positions.2,
+                positions: positions.0,
+                normals: primitive
+                    .attributes
+                    .normal
+                    .and_then(|normal| {
+                        primitive_reader
+                            .get_raw_buffer(normal, &mut gltf_buffer_out.normal)
+                            .ok()
+                    })
+                    .map(|i| i.0),
+                uv0: primitive
+                    .attributes
+                    .texcoord_0
+                    .and_then(|texcoord| {
+                        gltf_buffer_out.texcoord.resize(1, Default::default());
+                        let tex_buffer = gltf_buffer_out.texcoord.get_mut(0)?;
+                        primitive_reader.get_raw_buffer(texcoord, tex_buffer).ok()
+                    })
+                    .map(|i| i.0),
+                tangents: primitive
+                    .attributes
+                    .tangent
+                    .and_then(|tangent| {
+                        primitive_reader
+                            .get_raw_buffer(tangent, &mut gltf_buffer_out.tangent)
+                            .ok()
+                    })
+                    .map(|i| i.0),
+                index,
+                mode: primitive.mode,
+                mat: primitive.material,
+                bi_tangents: None,
+            };
+
+            meshes_out.push(mesh_out);
+        }
+
+        Node {
+            id: *node_id,
+            per_node_info: PerNodeBuffer { transform },
+            name: node.name.clone(),
+            meshes: meshes_out,
+            ..Default::default()
+        }
+    } else {
+        Node {
+            id: *node_id,
+            name: node.name.clone(),
+            per_node_info: PerNodeBuffer { transform },
+            ..Default::default()
+        }
     };
 
     for children in &node.children {

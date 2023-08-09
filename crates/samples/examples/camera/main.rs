@@ -162,6 +162,8 @@ fn render(base_state: &mut BaseState, dt: Duration) -> Result<(), Error> {
                 },
             })],
             depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
         });
 
         let pipeline = &state.render_pipeline;

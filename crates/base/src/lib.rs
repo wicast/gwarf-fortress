@@ -335,7 +335,7 @@ pub async fn run(
                 let now = std::time::Instant::now();
                 let dt = now - last_render_time;
                 last_render_time = now;
-                state.tick(dt);
+                state.tick(dt).unwrap();
                 match state.render(dt) {
                     Ok(_) => {},
                     Err(err) => {

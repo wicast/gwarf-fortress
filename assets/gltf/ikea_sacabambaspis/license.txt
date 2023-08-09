@@ -1,0 +1,11 @@
+Model Information:
+* title:	Ikea Sacabambaspis
+* source:	https://sketchfab.com/3d-models/ikea-sacabambaspis-fb0bc055111b4e3f9dbc341db23343e7
+* author:	squiddingme (https://sketchfab.com/squiddingme)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Ikea Sacabambaspis" (https://sketchfab.com/3d-models/ikea-sacabambaspis-fb0bc055111b4e3f9dbc341db23343e7) by squiddingme (https://sketchfab.com/squiddingme) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

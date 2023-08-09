@@ -146,6 +146,7 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
     let mut obj_count = 0;
     let mut per_obj_data = vec![];
     for node in &scene_view.nodes {
+        let node = node.1;
         for mesh in &node.meshes {
             indirect.push(DrawIndexedIndirect {
                 vertex_count: mesh.index.count as u32,
@@ -439,13 +440,13 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
 
     let (scene_view, scene_buffer) =
         load_gltf(cube_path, Default::default()).context(GLTFErrSnafu)?;
-    let cube_pos = &scene_buffer.positions[scene_view.nodes[0].meshes[0].positions.clone()];
+    let cube_pos = &scene_buffer.positions[scene_view.nodes.get(&0).context(NoneErrSnafu)?.meshes[0].positions.clone()];
     let cube_buffer = device.create_buffer_init(&BufferInitDescriptor {
         label: Some("light debug cube pos"),
         contents: cube_pos,
         usage: wgpu::BufferUsages::VERTEX,
     });
-    let cube_ind = &scene_buffer.index[scene_view.nodes[0].meshes[0].index.indices.clone()];
+    let cube_ind = &scene_buffer.index[scene_view.nodes.get(&0).context(NoneErrSnafu)?.meshes[0].index.indices.clone()];
     let cube_ind_buffer = device.create_buffer_init(&BufferInitDescriptor {
         label: Some("light debug cube index"),
         contents: cube_ind,
@@ -463,6 +464,7 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("Light Shader"),
         source: wgpu::ShaderSource::Wgsl(include_str!("light.wgsl").into()),
+        debug: true,
     });
 
     let light_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -529,7 +531,7 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
         light_pipeline,
         cube_buf: cube_buffer,
         cube_ind: cube_ind_buffer,
-        cube_ind_count: scene_view.nodes[0].meshes[0].index.count,
+        cube_ind_count: scene_view.nodes.get(&0).context(NoneErrSnafu)?.meshes[0].index.count,
         tangent: tangent_buf,
         bi_tangent: bi_tangent_buf,
     });
@@ -581,6 +583,8 @@ fn render(base_state: &mut BaseState, _dt: Duration) -> Result<(), Error> {
                 }),
                 stencil_ops: None,
             }),
+            timestamp_writes: None,
+            occlusion_query_set: None,
         });
 
         let state_long_live = base_state.extra_state.as_mut().context(NoneErrSnafu)?;

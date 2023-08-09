@@ -1,0 +1,506 @@
+{
+  "accessors": [
+    {
+      "bufferView": 3,
+      "componentType": 5126,
+      "count": 1138,
+      "max": [
+        0.17018496990203857,
+        0.1426391452550888,
+        0.5234114527702332
+      ],
+      "min": [
+        -0.17524701356887817,
+        -0.20163945853710175,
+        -0.5133853554725647
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 3,
+      "byteOffset": 13656,
+      "componentType": 5126,
+      "count": 1138,
+      "max": [
+        0.9992706775665283,
+        0.9997478723526001,
+        0.9988038539886475
+      ],
+      "min": [
+        -0.9992501735687256,
+        -0.9996709823608398,
+        -0.9976040720939636
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 4,
+      "componentType": 5126,
+      "count": 1138,
+      "max": [
+        0.9992514848709106,
+        0.822563886642456,
+        0.9992097616195679,
+        1.0
+      ],
+      "min": [
+        -0.9999369382858276,
+        -0.9998477697372437,
+        -0.9982235431671143,
+        -1.0
+      ],
+      "type": "VEC4"
+    },
+    {
+      "bufferView": 2,
+      "componentType": 5126,
+      "count": 1138,
+      "max": [
+        0.9718193411827087,
+        0.9628612995147705
+      ],
+      "min": [
+        0.03930675983428955,
+        0.039599619805812836
+      ],
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 1,
+      "componentType": 5125,
+      "count": 6048,
+      "type": "SCALAR"
+    },
+    {
+      "bufferView": 5,
+      "componentType": 5126,
+      "count": 5,
+      "max": [
+        1.0,
+        7.621408171211918e-16,
+        3.5854210090257785e-14,
+        0.0,
+        0.9999498128890991,
+        1.0,
+        0.0,
+        0.0,
+        0.03589824587106705,
+        0.9990967512130737,
+        1.0,
+        0.0,
+        0.022019213065505028,
+        0.12739744782447815,
+        0.0,
+        1.0
+      ],
+      "min": [
+        -0.0009043638128787279,
+        -6.622166703884602e-10,
+        -0.9999995231628418,
+        0.0,
+        0.0,
+        -0.04249410703778267,
+        -0.9990958571434021,
+        0.0,
+        -0.010525661520659924,
+        -0.9999510645866394,
+        -0.042494069784879684,
+        0.0,
+        0.0,
+        -0.3950123190879822,
+        -0.012511034496128559,
+        1.0
+      ],
+      "type": "MAT4"
+    },
+    {
+      "bufferView": 0,
+      "componentType": 5123,
+      "count": 1138,
+      "type": "VEC4"
+    },
+    {
+      "bufferView": 4,
+      "byteOffset": 18208,
+      "componentType": 5126,
+      "count": 1138,
+      "max": [
+        1.0,
+        0.4990190863609314,
+        0.25606027245521545,
+        0.0
+      ],
+      "min": [
+        0.4291183352470398,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "type": "VEC4"
+    }
+  ],
+  "asset": {
+    "extras": {
+      "author": "squiddingme (https://sketchfab.com/squiddingme)",
+      "license": "CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)",
+      "source": "https://sketchfab.com/3d-models/ikea-sacabambaspis-fb0bc055111b4e3f9dbc341db23343e7",
+      "title": "Ikea Sacabambaspis"
+    },
+    "generator": "Sketchfab-15.27.0",
+    "version": "2.0"
+  },
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteLength": 9104,
+      "byteStride": 8,
+      "name": "shortBufferViews",
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 24192,
+      "byteOffset": 9104,
+      "name": "floatBufferViews",
+      "target": 34963
+    },
+    {
+      "buffer": 0,
+      "byteLength": 9104,
+      "byteOffset": 33296,
+      "byteStride": 8,
+      "name": "floatBufferViews",
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 27312,
+      "byteOffset": 42400,
+      "byteStride": 12,
+      "name": "floatBufferViews",
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 36416,
+      "byteOffset": 69712,
+      "byteStride": 16,
+      "name": "floatBufferViews",
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 320,
+      "byteOffset": 106128,
+      "name": "floatBufferViews"
+    }
+  ],
+  "buffers": [
+    {
+      "byteLength": 106448,
+      "uri": "scene.bin"
+    }
+  ],
+  "images": [
+    {
+      "uri": "textures/Sacabambaspis_baseColor.png"
+    },
+    {
+      "uri": "textures/Sacabambaspis_metallicRoughness.png"
+    },
+    {
+      "uri": "textures/Sacabambaspis_normal.png"
+    }
+  ],
+  "materials": [
+    {
+      "doubleSided": true,
+      "name": "Sacabambaspis",
+      "normalTexture": {
+        "index": 2
+      },
+      "occlusionTexture": {
+        "index": 1
+      },
+      "pbrMetallicRoughness": {
+        "baseColorTexture": {
+          "index": 0
+        },
+        "metallicRoughnessTexture": {
+          "index": 1
+        }
+      }
+    }
+  ],
+  "meshes": [
+    {
+      "name": "Sacabambaspis_Sacabambaspis_0",
+      "primitives": [
+        {
+          "attributes": {
+            "JOINTS_0": 6,
+            "NORMAL": 1,
+            "POSITION": 0,
+            "TANGENT": 2,
+            "TEXCOORD_0": 3,
+            "TEXCOORD_1": 3,
+            "TEXCOORD_2": 3,
+            "WEIGHTS_0": 7
+          },
+          "indices": 4,
+          "material": 0,
+          "mode": 4
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "children": [
+        1
+      ],
+      "matrix": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        -0.0006015018443574771,
+        -0.9999998211860657,
+        0.0,
+        0.0,
+        0.9999998211860657,
+        -0.0006015018443574771,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "name": "Sketchfab_model"
+    },
+    {
+      "children": [
+        2
+      ],
+      "matrix": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        -1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "name": "sacabambaspis.fbx"
+    },
+    {
+      "children": [
+        3
+      ],
+      "name": "RootNode"
+    },
+    {
+      "children": [
+        4
+      ],
+      "matrix": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        -1.6292067939183141e-07,
+        -0.9999999999999868,
+        0.0,
+        0.0,
+        0.9999999999999868,
+        -1.6292067939183141e-07,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "name": "Armature"
+    },
+    {
+      "children": [
+        5,
+        7,
+        6
+      ],
+      "name": "Object_4"
+    },
+    {
+      "children": [
+        8
+      ],
+      "name": "_rootJoint"
+    },
+    {
+      "matrix": [
+        1.0,
+        -6.759806273477261e-22,
+        -4.9803423742025913e-23,
+        0.0,
+        -4.9803423023348903e-23,
+        1.7593749458734524e-09,
+        -1.000000009449679,
+        0.0,
+        6.759806338226445e-22,
+        1.000000009448933,
+        1.7593749458721398e-09,
+        0.0,
+        -1.4700699858971288e-23,
+        1.5603708880540523e-09,
+        -8.567865750208625e-09,
+        1.0
+      ],
+      "name": "Object_6"
+    },
+    {
+      "mesh": 0,
+      "name": "Object_7",
+      "skin": 0
+    },
+    {
+      "children": [
+        9
+      ],
+      "name": "Root_00",
+      "rotation": [
+        0.999774158000946,
+        -5.933826370330852e-22,
+        1.793116233294624e-14,
+        -0.021251823753118515
+      ],
+      "scale": [
+        1.0,
+        0.9999999403953552,
+        1.0000008344650269
+      ],
+      "translation": [
+        4.6452324939094585e-18,
+        -0.1974467933177948,
+        -0.020920267328619957
+      ]
+    },
+    {
+      "children": [
+        10
+      ],
+      "name": "Tail_001_01",
+      "rotation": [
+        -0.7067831754684448,
+        0.0023458541836589575,
+        0.7074226140975952,
+        -0.0023216845002025366
+      ],
+      "scale": [
+        0.9999999403953552,
+        0.9999998807907104,
+        1.0
+      ],
+      "translation": [
+        -3.238902583161123e-16,
+        -0.0706174299120903,
+        0.008666779845952988
+      ]
+    },
+    {
+      "children": [
+        11
+      ],
+      "name": "Tail_002_02",
+      "rotation": [
+        2.0993811631342396e-05,
+        4.132857944760815e-10,
+        0.023213863372802734,
+        0.9997305274009705
+      ],
+      "scale": [
+        1.0,
+        1.0000001192092896,
+        1.0
+      ],
+      "translation": [
+        9.313225746154785e-10,
+        0.41305771470069885,
+        9.097741006727778e-13
+      ]
+    },
+    {
+      "name": "Tail_003_03",
+      "rotation": [
+        -9.236374353349674e-06,
+        1.2838625128297476e-11,
+        -0.01021310780197382,
+        0.9999478459358215
+      ],
+      "scale": [
+        0.9999999403953552,
+        1.0,
+        1.0
+      ],
+      "translation": [
+        -4.6566092648525625e-10,
+        0.1088988408446312,
+        1.6907720883085897e-13
+      ]
+    }
+  ],
+  "samplers": [
+    {
+      "magFilter": 9729,
+      "minFilter": 9987,
+      "wrapS": 10497,
+      "wrapT": 10497
+    }
+  ],
+  "scene": 0,
+  "scenes": [
+    {
+      "name": "Sketchfab_Scene",
+      "nodes": [
+        0
+      ]
+    }
+  ],
+  "skins": [
+    {
+      "inverseBindMatrices": 5,
+      "joints": [
+        5,
+        8,
+        9,
+        10,
+        11
+      ],
+      "skeleton": 5
+    }
+  ],
+  "textures": [
+    {
+      "sampler": 0,
+      "source": 0
+    },
+    {
+      "sampler": 0,
+      "source": 1
+    },
+    {
+      "sampler": 0,
+      "source": 2
+    }
+  ]
+}
