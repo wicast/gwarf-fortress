@@ -47,9 +47,9 @@ struct State {
     quad_buf: wgpu::Buffer,
     quad_uv_buf: wgpu::Buffer,
     gbuffer_bind_group: wgpu::BindGroup,
-    position_tex: texture::Texture,
-    normal_tex: texture::Texture,
-    albedo_tex: texture::Texture,
+    position_gb: texture::Texture,
+    normal_gb: texture::Texture,
+    albedo_gb: texture::Texture,
 }
 
 impl StateDynObj for State {}
@@ -386,86 +386,10 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
         });
 
     //GBuffer Attachments
-    let pos_tex_desc = wgpu::TextureDescriptor {
-        label: Some("Gbuffer Position"),
-        size: wgpu::Extent3d {
-            width: base_state.size.width,
-            height: base_state.size.height,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba16Float,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT // 3.
-        | wgpu::TextureUsages::TEXTURE_BINDING,
-        view_formats: &[],
-    };
-    let mut position_tex = texture::Texture::create_texture(device, pos_tex_desc, true);
-
-    let normal_tex_desc = wgpu::TextureDescriptor {
-        label: Some("Gbuffer Normal"),
-        size: wgpu::Extent3d {
-            width: base_state.size.width,
-            height: base_state.size.height,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba16Float,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT // 3.
-        | wgpu::TextureUsages::TEXTURE_BINDING,
-        view_formats: &[],
-    };
-    let normal_tex = texture::Texture::create_texture(device, normal_tex_desc, false);
-
-    let albedo_tex_desc = wgpu::TextureDescriptor {
-        label: Some("Gbuffer Albedo"),
-        size: wgpu::Extent3d {
-            width: base_state.size.width,
-            height: base_state.size.height,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba32Float,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT // 3.
-        | wgpu::TextureUsages::TEXTURE_BINDING,
-        view_formats: &[],
-    };
-    let mut albedo_tex = texture::Texture::create_texture(device, albedo_tex_desc, true);
+    let (position_gb, normal_gb, albedo_gb, gbuffer_bind_group_layout, gbuffer_bind_group) =
+        prepare_gbuffer_resource(base_state)?;
 
     //Gbuffer pipeline
-
-    let quad_vertices = [
-        [-1.0f32, 1.0, 0.0],
-        [-1.0, -1.0, 0.0],
-        [1.0, 1.0, 0.0],
-        [1.0, -1.0, 0.0],
-        [1.0, 1.0, 0.0],
-        [-1.0, -1.0, 0.0],
-    ];
-    let quad_uv = [
-        [0.0f32, 0.0],
-        [0.0, 1.0],
-        [1.0, 0.0],
-        [1.0, 1.0],
-        [1.0, 0.0],
-        [0.0, 1.0],
-    ];
-
-    let quad_buf = device.create_buffer_init(&BufferInitDescriptor {
-        label: Some("GBuffer Quad"),
-        contents: bytemuck::cast_slice(&quad_vertices),
-        usage: wgpu::BufferUsages::VERTEX,
-    });
-    let quad_uv_buf = device.create_buffer_init(&BufferInitDescriptor {
-        label: Some("GBuffer Quad UV"),
-        contents: bytemuck::cast_slice(&quad_uv),
-        usage: wgpu::BufferUsages::VERTEX,
-    });
 
     let gbuffer_shader =
         device.create_shader_module(wgpu::include_wgsl!("gbuffer_shader.wgsl", true));
@@ -528,7 +452,7 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
                     write_mask: wgpu::ColorWrites::ALL,
                 }),
                 Some(wgpu::ColorTargetState {
-                    format: wgpu::TextureFormat::Rgba32Float,
+                    format: wgpu::TextureFormat::Rgba16Float,
                     blend: None,
                     write_mask: wgpu::ColorWrites::ALL,
                 }),
@@ -537,87 +461,33 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
         multiview: None,
     });
 
-    //TODO Deferred render
-    let gbuffer_bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-        label: Some("GBuffer Bind Group Layout"),
-        entries: &[
-            //Sampler
-            BindGroupLayoutEntry {
-                binding: 0,
-                visibility: ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
-                count: None,
-            },
-            //Position Buffer
-            BindGroupLayoutEntry {
-                binding: 1,
-                visibility: ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                    multisampled: false,
-                },
-                count: None,
-            },
-            //Normal Buffer
-            BindGroupLayoutEntry {
-                binding: 2,
-                visibility: ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                    multisampled: false,
-                },
-                count: None,
-            },
-            //Albedo Buffer
-            BindGroupLayoutEntry {
-                binding: 3,
-                visibility: ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                    multisampled: false,
-                },
-                count: None,
-            },
-            BindGroupLayoutEntry {
-                binding: 4,
-                visibility: ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
-                count: None,
-            },
-        ],
+    //Deferred render
+    let quad_vertices = [
+        [-1.0f32, 1.0, 0.0],
+        [-1.0, -1.0, 0.0],
+        [1.0, 1.0, 0.0],
+        [1.0, -1.0, 0.0],
+        [1.0, 1.0, 0.0],
+        [-1.0, -1.0, 0.0],
+    ];
+    let quad_uv = [
+        [0.0f32, 0.0],
+        [0.0, 1.0],
+        [1.0, 0.0],
+        [1.0, 1.0],
+        [1.0, 0.0],
+        [0.0, 1.0],
+    ];
+
+    let quad_buf = device.create_buffer_init(&BufferInitDescriptor {
+        label: Some("GBuffer Quad"),
+        contents: bytemuck::cast_slice(&quad_vertices),
+        usage: wgpu::BufferUsages::VERTEX,
     });
-    let gbuffer_bind_group = device.create_bind_group(&BindGroupDescriptor {
-        label: Some("GBuffer Bind Group"),
-        layout: &gbuffer_bind_group_layout,
-        entries: &[
-            BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::Sampler(
-                    &position_tex.sampler.take().context(NoneErrSnafu)?,
-                ),
-            },
-            BindGroupEntry {
-                binding: 1,
-                resource: wgpu::BindingResource::TextureView(&position_tex.view),
-            },
-            BindGroupEntry {
-                binding: 2,
-                resource: wgpu::BindingResource::TextureView(&normal_tex.view),
-            },
-            BindGroupEntry {
-                binding: 3,
-                resource: wgpu::BindingResource::TextureView(&albedo_tex.view),
-            },
-            BindGroupEntry {
-                binding: 4,
-                resource: wgpu::BindingResource::Sampler(
-                    &albedo_tex.sampler.take().context(NoneErrSnafu)?,
-                ),
-            },
-        ],
+    let quad_uv_buf = device.create_buffer_init(&BufferInitDescriptor {
+        label: Some("GBuffer Quad UV"),
+        contents: bytemuck::cast_slice(&quad_uv),
+        usage: wgpu::BufferUsages::VERTEX,
     });
 
     let deferred_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
@@ -672,7 +542,8 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
     // Generate light data
     let light_data = LightBuffer {
         // position: [-0., 2.3, -0.3],
-        position: [-0.4, 0.1, -0.3],
+        // position: [-0.4, 0.1, -0.3],
+        position: [0., 0.5, -0.3],
         color: [1.0; 3],
         _padding: 0,
         _padding2: 0,
@@ -796,9 +667,9 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
             .count,
         tangent: tangent_buf,
         bi_tangent: bi_tangent_buf,
-        position_tex,
-        normal_tex,
-        albedo_tex,
+        position_gb,
+        normal_gb,
+        albedo_gb,
         gbuffer_bind_group,
         quad_buf,
         quad_uv_buf,
@@ -806,6 +677,159 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
     base_state.extra_state = Some(state);
 
     Ok(())
+}
+
+fn prepare_gbuffer_resource(
+    base_state: &BaseState,
+) -> Result<
+    (
+        texture::Texture,
+        texture::Texture,
+        texture::Texture,
+        BindGroupLayout,
+        wgpu::BindGroup,
+    ),
+    Error,
+> {
+    let device = &base_state.device;
+
+    let pos_tex_desc = wgpu::TextureDescriptor {
+        label: Some("Gbuffer Position"),
+        size: wgpu::Extent3d {
+            width: base_state.size.width,
+            height: base_state.size.height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba16Float,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT // 3.
+        | wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    };
+    let mut position_tex = texture::Texture::create_texture(device, pos_tex_desc, true);
+    let normal_tex_desc = wgpu::TextureDescriptor {
+        label: Some("Gbuffer Normal"),
+        size: wgpu::Extent3d {
+            width: base_state.size.width,
+            height: base_state.size.height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba16Float,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT // 3.
+        | wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    };
+    let normal_tex = texture::Texture::create_texture(device, normal_tex_desc, false);
+    let albedo_tex_desc = wgpu::TextureDescriptor {
+        label: Some("Gbuffer Albedo"),
+        size: wgpu::Extent3d {
+            width: base_state.size.width,
+            height: base_state.size.height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba16Float,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT // 3.
+        | wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    };
+    let mut albedo_tex = texture::Texture::create_texture(device, albedo_tex_desc, true);
+    let gbuffer_bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+        label: Some("GBuffer Bind Group Layout"),
+        entries: &[
+            //Sampler
+            BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+            //Position Buffer
+            BindGroupLayoutEntry {
+                binding: 1,
+                visibility: ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            //Normal Buffer
+            BindGroupLayoutEntry {
+                binding: 2,
+                visibility: ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            //Albedo Buffer
+            BindGroupLayoutEntry {
+                binding: 3,
+                visibility: ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            // Albedo Sampler
+            BindGroupLayoutEntry {
+                binding: 4,
+                visibility: ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+    });
+    let gbuffer_bind_group = device.create_bind_group(&BindGroupDescriptor {
+        label: Some("GBuffer Bind Group"),
+        layout: &gbuffer_bind_group_layout,
+        entries: &[
+            BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Sampler(
+                    &position_tex.sampler.take().context(NoneErrSnafu)?,
+                ),
+            },
+            BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(&position_tex.view),
+            },
+            BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::TextureView(&normal_tex.view),
+            },
+            BindGroupEntry {
+                binding: 3,
+                resource: wgpu::BindingResource::TextureView(&albedo_tex.view),
+            },
+            BindGroupEntry {
+                binding: 4,
+                resource: wgpu::BindingResource::Sampler(
+                    &albedo_tex.sampler.take().context(NoneErrSnafu)?,
+                ),
+            },
+        ],
+    });
+    Ok((
+        position_tex,
+        normal_tex,
+        albedo_tex,
+        gbuffer_bind_group_layout,
+        gbuffer_bind_group,
+    ))
 }
 
 fn tick(_state: &mut BaseState, _dt: Duration) -> Result<(), Error> {
@@ -835,7 +859,7 @@ fn render(base_state: &mut BaseState, _dt: Duration) -> Result<(), Error> {
             label: Some("Render Pass"),
             color_attachments: &[
                 Some(wgpu::RenderPassColorAttachment {
-                    view: &state.position_tex.view,
+                    view: &state.position_gb.view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
@@ -848,7 +872,7 @@ fn render(base_state: &mut BaseState, _dt: Duration) -> Result<(), Error> {
                     },
                 }),
                 Some(wgpu::RenderPassColorAttachment {
-                    view: &state.normal_tex.view,
+                    view: &state.normal_gb.view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
@@ -861,7 +885,7 @@ fn render(base_state: &mut BaseState, _dt: Duration) -> Result<(), Error> {
                     },
                 }),
                 Some(wgpu::RenderPassColorAttachment {
-                    view: &state.albedo_tex.view,
+                    view: &state.albedo_gb.view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
@@ -977,7 +1001,21 @@ fn render(base_state: &mut BaseState, _dt: Duration) -> Result<(), Error> {
 }
 
 //TODO
-fn resize(state: &mut BaseState, new_size: winit::dpi::PhysicalSize<u32>) {}
+fn resize(
+    base_state: &mut BaseState,
+    new_size: winit::dpi::PhysicalSize<u32>,
+) -> Result<(), Error> {
+    let (position_gb, normal_gb, albedo_gb, gbuffer_bind_group_layout, gbuffer_bind_group) =
+        prepare_gbuffer_resource(base_state)?;
+    let state_long_live = base_state.extra_state.as_mut().context(NoneErrSnafu)?;
+    let state = downcast_mut::<State>(state_long_live).context(NoneErrSnafu)?;
+
+    state.gbuffer_bind_group = gbuffer_bind_group;
+    state.position_gb = position_gb;
+    state.normal_gb = normal_gb;
+    state.albedo_gb = albedo_gb;
+    Ok(())
+}
 
 fn main() {
     pollster::block_on(run(

@@ -28,10 +28,11 @@ pub use wgpu;
 pub use winit;
 
 type GetConfigFn = fn() -> (wgpu::Backends, wgpu::Features);
-type InitFn = fn(state: &mut BaseState) -> Result<(), Error>;
-type TickFn = fn(state: &mut BaseState, dt: Duration) -> Result<(), Error>;
-type RenderFn = fn(state: &mut BaseState, dt: Duration) -> Result<(), Error>;
-type ResizeFn = fn(state: &mut BaseState, new_size: winit::dpi::PhysicalSize<u32>);
+type InitFn = fn(base_state: &mut BaseState) -> Result<(), Error>;
+type TickFn = fn(base_state: &mut BaseState, dt: Duration) -> Result<(), Error>;
+type RenderFn = fn(base_state:&mut BaseState, dt: Duration) -> Result<(), Error>;
+type ResizeFn =
+    fn(base_state: &mut BaseState, new_size: winit::dpi::PhysicalSize<u32>) -> Result<(), Error>;
 
 pub fn default_configs() -> (wgpu::Backends, wgpu::Features) {
     (wgpu::Backends::all(), wgpu::Features::empty())
@@ -236,7 +237,7 @@ impl BaseState {
         );
 
         if let Some(f) = self.resize_fn {
-            f(self, new_size);
+            f(self, new_size).unwrap();
         }
     }
 

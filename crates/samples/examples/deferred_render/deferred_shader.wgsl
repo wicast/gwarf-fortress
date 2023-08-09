@@ -60,7 +60,7 @@ fn fs_main(in: VertexOutput) -> FragOut {
     let normal = textureSample(normal_gb, s, in.uv).rgb;
     let albedo = textureSample(albedo_gb, s1, in.uv);
 
-    let ambient_strength = 0.01;
+    let ambient_strength = 0.005;
     let ambient = light.color * ambient_strength;
 
     let light_direction = normalize(light.position - pos);

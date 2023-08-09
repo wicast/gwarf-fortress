@@ -67,7 +67,7 @@ fn vs_main(
 
     let a_normal = normalize((model_mat * vec4<f32>(normal.normal, 1.0)).xyz);
     var a_tangent = normalize((model_mat * tangent.tangent)).xyz;
-    let a_bi_tangent = normalize(cross(a_normal, a_tangent) * tangent.tangent.z);
+    let a_bi_tangent = normalize(cross(a_normal, a_tangent) * tangent.tangent.w);
 
     let obj_pos = (model_mat * vec4<f32>(vert.position, 1.0));
     out.clip_position = camera.view_proj * obj_pos;
@@ -104,8 +104,6 @@ struct FragOut {
 fn fs_main(in: VertexOutput) -> FragOut {
     var out: FragOut;
 
-    let tbn = mat3x3<f32>(in.a_tangent, in.a_bi_tangent, in.a_normal);
-
     let tex_color = textureSampleLevel(
         textures[in.base_color],
         samplers[in.base_color_sampler],
@@ -127,9 +125,14 @@ fn fs_main(in: VertexOutput) -> FragOut {
         0.0
     ).rgb;
 
+    let tbn = mat3x3<f32>(in.a_tangent, in.a_bi_tangent, in.a_normal);
+
     out.pos = vec4<f32>(in.pos, 1.0);
+    // component w for metallic
     out.albedo = vec4<f32>(tex_color, metallic.g);
-    normal = tbn * normalize(normal * 2.0 - 1.0);
+    normal = (normal * 2.0 - 1.0);
+    normal = tbn * normal;
+    // component w for roughness
     out.normal = vec4<f32>(normalize(normal), metallic.b);
     return out;
 }
