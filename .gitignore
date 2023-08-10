@@ -41,3 +41,7 @@ Network Trash Folder
 Temporary Items
 .apdisk
 .vscode/
+
+vs_launch/.vs/
+vs_launch/x64/
+vs_launch/x86

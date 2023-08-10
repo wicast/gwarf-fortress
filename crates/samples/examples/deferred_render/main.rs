@@ -542,8 +542,8 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
     // Generate light data
     let light_data = LightBuffer {
         // position: [-0., 2.3, -0.3],
-        // position: [-0.4, 0.1, -0.3],
-        position: [0., 0.5, -0.3],
+        position: [-0.4, 0.1, -0.3],
+        // position: [0., 0.5, -0.3],
         color: [1.0; 3],
         _padding: 0,
         _padding2: 0,
