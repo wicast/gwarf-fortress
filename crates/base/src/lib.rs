@@ -30,7 +30,7 @@ pub use winit;
 type GetConfigFn = fn() -> (wgpu::Backends, wgpu::Features);
 type InitFn = fn(base_state: &mut BaseState) -> Result<(), Error>;
 type TickFn = fn(base_state: &mut BaseState, dt: Duration) -> Result<(), Error>;
-type RenderFn = fn(base_state:&mut BaseState, dt: Duration) -> Result<(), Error>;
+type RenderFn = fn(base_state: &mut BaseState, dt: Duration) -> Result<(), Error>;
 type ResizeFn =
     fn(base_state: &mut BaseState, new_size: winit::dpi::PhysicalSize<u32>) -> Result<(), Error>;
 
@@ -284,6 +284,7 @@ impl BaseState {
     }
 }
 
+//TODO make a application builder
 pub async fn run(
     config_fn: GetConfigFn,
     init_fn: InitFn,
