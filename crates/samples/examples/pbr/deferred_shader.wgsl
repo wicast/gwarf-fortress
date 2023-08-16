@@ -180,8 +180,7 @@ fn BRDF(v: vec3<f32>, l: vec3<f32>, n: vec3<f32>, a: f32, f0: vec3<f32>, percept
 
 // Learn OpenGL
 fn DistributionGGX(N: vec3<f32>, H: vec3<f32>, roughness: f32) -> f32 {
-    let a = roughness * roughness;
-    let a2 = a * a;
+    let a2 = roughness * roughness;
     let NdotH = max(dot(N, H), 0.0);
     let NdotH2 = NdotH * NdotH;
 
