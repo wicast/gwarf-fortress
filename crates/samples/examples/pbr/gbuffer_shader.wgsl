@@ -129,10 +129,10 @@ fn fs_main(in: VertexOutput) -> FragOut {
 
     out.pos = vec4<f32>(in.pos, 1.0);
     // component w for metallic
-    out.albedo = vec4<f32>(tex_color, metallic.g);
+    out.albedo = vec4<f32>(tex_color, metallic.b);
     normal = (normal * 2.0 - 1.0);
     normal = tbn * normal;
     // component w for roughness
-    out.normal = vec4<f32>(normalize(normal), metallic.b);
+    out.normal = vec4<f32>(normalize(normal), metallic.g);
     return out;
 }

@@ -15,8 +15,7 @@ use gf_base::{
         util::{BufferInitDescriptor, DeviceExt, DrawIndexedIndirect},
         BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
         BindGroupLayoutEntry, DepthStencilState, Operations, PipelineLayoutDescriptor,
-        RenderPassDepthStencilAttachment, ShaderStages,
-        TextureDescriptor,
+        RenderPassDepthStencilAttachment, ShaderStages, TextureDescriptor,
         VertexFormat::*,
     },
     winit, BaseState, Error, GLTFErrSnafu, ImageLoadErrSnafu, NoneErrSnafu, StateDynObj,
@@ -112,25 +111,30 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
     );
 
     let path = format!(
-        "{}/../../assets/gltf/glTF-Sample-Models/2.0/BarramundiFish/glTF/BarramundiFish.gltf",
+        "{}/../../assets/gltf/glTF-Sample-Models/2.0/DamagedHelmet/glTF/DamagedHelmet.gltf",
         env!("CARGO_MANIFEST_DIR")
     );
+
+    // let path = format!(
+    //     "{}/../../assets/gltf/glTF-Sample-Models/2.0/BarramundiFish/glTF/BarramundiFish.gltf",
+    //     env!("CARGO_MANIFEST_DIR")
+    // );
 
     // let path = format!(
     //     "{}/../../assets/gltf/glTF-Sample-Models/2.0/Box With Spaces/glTF/Box With Spaces.gltf",
     //     env!("CARGO_MANIFEST_DIR")
     // );
 
-    //TODO transform has problem
-    let path = format!(
-        "{}/../../assets/gltf/ikea_sacabambaspis/scene.gltf",
-        env!("CARGO_MANIFEST_DIR")
-    );
+    //TODO transform has a problem
+    // let path = format!(
+    //     "{}/../../assets/gltf/ikea_sacabambaspis/scene.gltf",
+    //     env!("CARGO_MANIFEST_DIR")
+    // );
 
-    let path = format!(
-        "{}/../../assets/gltf/ikea_sacabambaspis/sacabambaspis.glb",
-        env!("CARGO_MANIFEST_DIR")
-    );
+    // let path = format!(
+    //     "{}/../../assets/gltf/ikea_sacabambaspis/sacabambaspis.glb",
+    //     env!("CARGO_MANIFEST_DIR")
+    // );
 
     let (scene_view, scene_buffer) =
         load_gltf(&path, LoadOption { gen_tbn: true }).context(GLTFErrSnafu)?;
@@ -541,8 +545,8 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
     //Light debug
     // Generate light data
     let light_data = LightBuffer {
-        // position: [-0., 2.3, -0.3],
-        position: [-0.4, 0.1, -0.3],
+        position: [-0., 1.5, 0.3],
+        // position: [-0.4, 0.1, -0.3],
         // position: [0., 0.5, -0.3],
         color: [1.0; 3],
         _padding: 0,

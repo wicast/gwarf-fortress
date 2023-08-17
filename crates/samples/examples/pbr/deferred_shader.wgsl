@@ -117,7 +117,7 @@ fn fs_main(in: VertexOutput) -> FragOut {
     
     // ambient lighting (note that the next IBL tutorial will replace 
     // this ambient lighting with environment lighting).
-    let ambient = vec3(0.03) * albedo;//TODO * ao;
+    let ambient = vec3(0.0006) * albedo;//TODO * ao;
 
     var color = ambient + Lo;
 
@@ -128,6 +128,41 @@ fn fs_main(in: VertexOutput) -> FragOut {
 
     out.color = vec4<f32>(color, 1.0);
     return out;
+}
+
+// Learn OpenGL
+fn DistributionGGX(N: vec3<f32>, H: vec3<f32>, roughness: f32) -> f32 {
+    let a2 = roughness * roughness;
+    let NdotH = max(dot(N, H), 0.0);
+    let NdotH2 = NdotH * NdotH;
+
+    let nom = a2;
+    var denom = (NdotH2 * (a2 - 1.0) + 1.0);
+    denom = PI * denom * denom;
+
+    return nom / denom;
+}
+
+fn GeometrySchlickGGX(NdotV: f32, roughness: f32) -> f32 {
+    let r = (roughness + 1.0);
+    let k = (r * r) / 8.0;
+
+    let nom = NdotV;
+    let denom = NdotV * (1.0 - k) + k;
+
+    return nom / denom;
+}
+fn GeometrySmith(N: vec3<f32>, V: vec3<f32>, L: vec3<f32>, roughness: f32) -> f32 {
+    let NdotV = max(dot(N, V), 0.0);
+    let NdotL = max(dot(N, L), 0.0);
+    let ggx2 = GeometrySchlickGGX(NdotV, roughness);
+    let ggx1 = GeometrySchlickGGX(NdotL, roughness);
+
+    return ggx1 * ggx2;
+}
+
+fn fresnelSchlick(cosTheta: f32, F0: vec3<f32>) -> vec3<f32> {
+    return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 
 // filament 
@@ -175,40 +210,4 @@ fn BRDF(v: vec3<f32>, l: vec3<f32>, n: vec3<f32>, a: f32, f0: vec3<f32>, percept
     let Fd = diffuseColor * Fd_Lambert();
 
     // apply lighting...
-}
-
-
-// Learn OpenGL
-fn DistributionGGX(N: vec3<f32>, H: vec3<f32>, roughness: f32) -> f32 {
-    let a2 = roughness * roughness;
-    let NdotH = max(dot(N, H), 0.0);
-    let NdotH2 = NdotH * NdotH;
-
-    let nom = a2;
-    var denom = (NdotH2 * (a2 - 1.0) + 1.0);
-    denom = PI * denom * denom;
-
-    return nom / denom;
-}
-
-fn GeometrySchlickGGX(NdotV: f32, roughness: f32) -> f32 {
-    let r = (roughness + 1.0);
-    let k = (r * r) / 8.0;
-
-    let nom = NdotV;
-    let denom = NdotV * (1.0 - k) + k;
-
-    return nom / denom;
-}
-fn GeometrySmith(N: vec3<f32>, V: vec3<f32>, L: vec3<f32>, roughness: f32) -> f32 {
-    let NdotV = max(dot(N, V), 0.0);
-    let NdotL = max(dot(N, L), 0.0);
-    let ggx2 = GeometrySchlickGGX(NdotV, roughness);
-    let ggx1 = GeometrySchlickGGX(NdotL, roughness);
-
-    return ggx1 * ggx2;
-}
-
-fn fresnelSchlick(cosTheta: f32, F0: vec3<f32>) -> vec3<f32> {
-    return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
