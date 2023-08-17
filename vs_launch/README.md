@@ -1,0 +1,1 @@
+Just a test for loading rust program in vs like: https://github.com/gfx-rs/wgpu/wiki/Debugging-with-Xcode
