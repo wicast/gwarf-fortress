@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/*"]
 
 [package]
-name = "gwarf_fortress"
+name = "gwarf-fortress"
 version = "0.1.0"
 edition = "2021"
 
