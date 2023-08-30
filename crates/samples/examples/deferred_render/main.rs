@@ -7,7 +7,6 @@ use gf_base::{
     downcast_mut,
     glam::{Mat3, Mat4},
     image::GenericImageView,
-    run,
     snafu::{OptionExt, ResultExt},
     texture::{self},
     wgpu::{
@@ -15,11 +14,10 @@ use gf_base::{
         util::{BufferInitDescriptor, DeviceExt, DrawIndexedIndirect},
         BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
         BindGroupLayoutEntry, DepthStencilState, Operations, PipelineLayoutDescriptor,
-        RenderPassDepthStencilAttachment, RenderPipelineDescriptor, ShaderStages,
-        TextureDescriptor,
+        RenderPassDepthStencilAttachment, ShaderStages, TextureDescriptor,
         VertexFormat::*,
     },
-    winit, BaseState, Error, GLTFErrSnafu, ImageLoadErrSnafu, NoneErrSnafu, StateDynObj,
+    winit, App, BaseState, Error, GLTFErrSnafu, ImageLoadErrSnafu, NoneErrSnafu, StateDynObj,
     SurfaceErrSnafu,
 };
 
@@ -832,6 +830,7 @@ fn prepare_gbuffer_resource(
     ))
 }
 
+//TODO
 fn tick(_state: &mut BaseState, _dt: Duration) -> Result<(), Error> {
     Ok(())
 }
@@ -1018,20 +1017,18 @@ fn resize(
 }
 
 fn main() {
-    pollster::block_on(run(
-        || {
-            (
-                wgpu::Backends::VULKAN | wgpu::Backends::METAL,
-                wgpu::Features::MULTI_DRAW_INDIRECT
-                    | wgpu::Features::INDIRECT_FIRST_INSTANCE
-                    | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING
-                    | wgpu::Features::TEXTURE_BINDING_ARRAY,
-            )
-        },
-        init,
-        tick,
-        render,
-        //TODO
-        Some(resize),
-    ))
+    let mut app = App::builder()
+        .config((
+            wgpu::Backends::VULKAN | wgpu::Backends::METAL,
+            wgpu::Features::MULTI_DRAW_INDIRECT
+                | wgpu::Features::INDIRECT_FIRST_INSTANCE
+                | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING
+                | wgpu::Features::TEXTURE_BINDING_ARRAY,
+        ))
+        .init_fn(init)
+        .render_fn(render)
+        .tick_fn(tick)
+        .resize_fn(resize)
+        .build();
+    app.run();
 }

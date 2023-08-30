@@ -7,7 +7,6 @@ use gf_base::{
     downcast_mut,
     glam::{Mat3, Mat4},
     image::GenericImageView,
-    run,
     snafu::{OptionExt, ResultExt},
     texture::{self},
     wgpu::{
@@ -18,7 +17,7 @@ use gf_base::{
         RenderPassDepthStencilAttachment, ShaderStages, TextureDescriptor,
         VertexFormat::*,
     },
-    winit, BaseState, Error, GLTFErrSnafu, ImageLoadErrSnafu, NoneErrSnafu, StateDynObj,
+    winit, App, BaseState, Error, GLTFErrSnafu, ImageLoadErrSnafu, NoneErrSnafu, StateDynObj,
     SurfaceErrSnafu,
 };
 
@@ -836,6 +835,7 @@ fn prepare_gbuffer_resource(
     ))
 }
 
+//TODO
 fn tick(_state: &mut BaseState, _dt: Duration) -> Result<(), Error> {
     Ok(())
 }
@@ -1004,7 +1004,6 @@ fn render(base_state: &mut BaseState, _dt: Duration) -> Result<(), Error> {
     Ok(())
 }
 
-//TODO
 fn resize(
     base_state: &mut BaseState,
     _new_size: winit::dpi::PhysicalSize<u32>,
@@ -1022,20 +1021,19 @@ fn resize(
 }
 
 fn main() {
-    pollster::block_on(run(
-        || {
-            (
-                wgpu::Backends::VULKAN | wgpu::Backends::METAL,
-                wgpu::Features::MULTI_DRAW_INDIRECT
-                    | wgpu::Features::INDIRECT_FIRST_INSTANCE
-                    | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING
-                    | wgpu::Features::TEXTURE_BINDING_ARRAY,
-            )
-        },
-        init,
-        tick,
-        render,
-        //TODO
-        Some(resize),
-    ))
+    let mut app = App::builder()
+        .config((
+            wgpu::Backends::VULKAN | wgpu::Backends::METAL,
+            wgpu::Features::MULTI_DRAW_INDIRECT
+                | wgpu::Features::INDIRECT_FIRST_INSTANCE
+                | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING
+                | wgpu::Features::TEXTURE_BINDING_ARRAY,
+        ))
+        .init_fn(init)
+        .tick_fn(tick)
+        .render_fn(render)
+        .resize_fn(resize)
+        .build();
+
+    app.run();
 }

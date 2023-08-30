@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use gf_base::snafu::{OptionExt, ResultExt};
-use gf_base::{default_configs, downcast_mut, run, BaseState, Error, StateDynObj, SurfaceErrSnafu};
+use gf_base::{downcast_mut, App, BaseState, Error, StateDynObj, SurfaceErrSnafu};
 use gf_base::{wgpu, NoneErrSnafu};
 
 #[derive(Default)]
@@ -55,20 +55,20 @@ fn render(base_state: &mut BaseState, dt: Duration) -> Result<(), Error> {
 }
 
 fn main() {
-    pollster::block_on(run(
-        default_configs,
-        |base_state| {
+    let mut app = App::builder()
+        .init_fn(|base_state| {
             let state = Box::new(State { i: 3213312 });
             base_state.extra_state = Some(state);
             Ok(())
-        },
-        |base_state, dt| {
+        })
+        .tick_fn(|base_state, dt| {
             let state_long_live = base_state.extra_state.as_mut().context(NoneErrSnafu)?;
             let state = downcast_mut::<State>(state_long_live).context(NoneErrSnafu)?;
             println!("state: {}", state.i);
             Ok(())
-        },
-        render,
-        None
-    ))
+        })
+        .render_fn(render)
+        .build();
+
+    app.run();
 }

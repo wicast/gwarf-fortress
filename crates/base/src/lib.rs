@@ -10,7 +10,8 @@ use env_logger::Env;
 use image::ImageError;
 use snafu::{Backtrace, Snafu};
 use texture::Texture;
-use wgpu::util::DeviceExt;
+use typed_builder::TypedBuilder;
+use wgpu::{util::DeviceExt, Backend, Backends};
 use winit::{
     event::{
         DeviceEvent, ElementState, Event, KeyboardInput, MouseButton, VirtualKeyCode, WindowEvent,
@@ -33,10 +34,6 @@ type TickFn = fn(base_state: &mut BaseState, dt: Duration) -> Result<(), Error>;
 type RenderFn = fn(base_state: &mut BaseState, dt: Duration) -> Result<(), Error>;
 type ResizeFn =
     fn(base_state: &mut BaseState, new_size: winit::dpi::PhysicalSize<u32>) -> Result<(), Error>;
-
-pub fn default_configs() -> (wgpu::Backends, wgpu::Features) {
-    (wgpu::Backends::all(), wgpu::Features::empty())
-}
 
 pub trait StateDynObj: AsAny {}
 
@@ -72,22 +69,16 @@ pub struct BaseState {
     pub mouse_pressed: bool,
 
     pub extra_state: Option<Box<dyn StateDynObj>>,
-    pub render_fn: RenderFn,
-    pub tick_fn: TickFn,
+    pub render_fn: Option<RenderFn>,
+    pub tick_fn: Option<TickFn>,
     pub resize_fn: Option<ResizeFn>,
 }
 
 impl BaseState {
     // Creating some of the wgpu types requires async code
-    async fn new(
-        window: Window,
-        config_fn: GetConfigFn,
-        init_fn: InitFn,
-        tick_fn: TickFn,
-        render_fn: RenderFn,
-        resize_fn: Option<ResizeFn>,
-    ) -> Self {
-        let (backends, features) = config_fn();
+    //TODO error
+    fn new(window: Window, app: &App) -> Self {
+        let (backends, features) = app.config.map_or((wgpu::Backends::all(), wgpu::Features::empty()), |i|i);
 
         let size = window.inner_size();
 
@@ -104,32 +95,28 @@ impl BaseState {
         // State owns the window so this should be safe.
         let surface = unsafe { instance.create_surface(&window) }.unwrap();
 
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::default(),
-                compatible_surface: Some(&surface),
-                force_fallback_adapter: false,
-            })
-            .await
-            .unwrap();
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::default(),
+            compatible_surface: Some(&surface),
+            force_fallback_adapter: false,
+        }))
+        .unwrap();
 
-        let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    features,
-                    // WebGL doesn't support all of wgpu's features, so if
-                    // we're building for the web we'll have to disable some.
-                    limits: if cfg!(target_arch = "wasm32") {
-                        wgpu::Limits::downlevel_webgl2_defaults()
-                    } else {
-                        wgpu::Limits::default()
-                    },
-                    label: None,
+        let (device, queue) = pollster::block_on(adapter.request_device(
+            &wgpu::DeviceDescriptor {
+                features,
+                // WebGL doesn't support all of wgpu's features, so if
+                // we're building for the web we'll have to disable some.
+                limits: if cfg!(target_arch = "wasm32") {
+                    wgpu::Limits::downlevel_webgl2_defaults()
+                } else {
+                    wgpu::Limits::default()
                 },
-                None, // Trace path
-            )
-            .await
-            .unwrap();
+                label: None,
+            },
+            None, // Trace path
+        ))
+        .unwrap();
 
         let surface_caps = surface.get_capabilities(&adapter);
         // Shader code in this tutorial assumes an sRGB surface texture. Using a different
@@ -198,8 +185,8 @@ impl BaseState {
             queue,
             config,
             size,
-            render_fn,
-            tick_fn,
+            render_fn: app.render_fn,
+            tick_fn: app.tick_fn,
             extra_state: Default::default(),
             camera,
             camera_controller,
@@ -209,10 +196,10 @@ impl BaseState {
             camera_buffer,
             camera_bind_group_layout,
             depth: depth_texture,
-            resize_fn,
+            resize_fn: app.resize_fn,
         };
         //TODO deal with error
-        let init_result = init_fn(&mut base_state);
+        let init_result = app.init_fn.map_or(Ok(()), |f| f(&mut base_state));
         init_result.unwrap();
         base_state
     }
@@ -276,95 +263,197 @@ impl BaseState {
             0,
             bytemuck::cast_slice(&[self.camera_uniform]),
         );
-        (self.tick_fn)(self, dt)
+        if let Some(tick_fn) = self.tick_fn {
+            tick_fn(self, dt)
+        } else {
+            Ok(())
+        }
     }
 
     fn render(&mut self, dt: Duration) -> Result<(), Error> {
-        (self.render_fn)(self, dt)
+        if let Some(render_fn) = self.render_fn {
+            render_fn(self, dt)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[derive(TypedBuilder)]
+pub struct App {
+    #[builder(default, setter(strip_option))]
+    config: Option<(wgpu::Backends, wgpu::Features)>,
+    #[builder(default, setter(strip_option))]
+    init_fn: Option<InitFn>,
+    #[builder(default, setter(strip_option))]
+    tick_fn: Option<TickFn>,
+    #[builder(default, setter(strip_option))]
+    render_fn: Option<RenderFn>,
+    #[builder(default, setter(strip_option))]
+    resize_fn: Option<ResizeFn>,
+}
+
+impl App {
+    pub fn run(&mut self) {
+        env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
+        let event_loop = EventLoop::new();
+        let window = WindowBuilder::new().build(&event_loop).unwrap();
+        let mut last_render_time = std::time::Instant::now();
+
+        let mut state = BaseState::new(window, &self);
+        event_loop.run(move |event, _, control_flow| {
+            match event {
+                Event::DeviceEvent {
+                    event: DeviceEvent::MouseMotion{ delta, },
+                    .. // We're not using device_id currently
+                } => if state.mouse_pressed {
+                    //TODO deal all events in one place
+                    state.camera_controller.process_mouse(delta.0, delta.1)
+                }
+                Event::WindowEvent {
+                    ref event,
+                    window_id,
+                } if window_id == state.window().id() => {
+                    if !state.input(event) {
+                        match event {
+                            WindowEvent::CloseRequested
+                            | WindowEvent::KeyboardInput {
+                                input:
+                                    KeyboardInput {
+                                        state: ElementState::Pressed,
+                                        virtual_keycode: Some(VirtualKeyCode::Escape),
+                                        ..
+                                    },
+                                ..
+                            } => *control_flow = ControlFlow::Exit,
+                            WindowEvent::Resized(physical_size) => {
+                                state.resize(*physical_size);
+                            }
+                            WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                                state.resize(**new_inner_size);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                Event::RedrawRequested(window_id) if window_id == state.window().id() => {
+                    let now = std::time::Instant::now();
+                    let dt = now - last_render_time;
+                    last_render_time = now;
+                    state.tick(dt).unwrap();
+                    match state.render(dt) {
+                        Ok(_) => {},
+                        Err(err) => {
+                            match err {
+                                Error::SurfaceErr { source } => {
+                                    match source {
+                                        // Reconfigure the surface if lost
+                                        wgpu::SurfaceError::Lost => state.resize(state.size),
+                                        // The system is out of memory, we should probably quit
+                                        wgpu::SurfaceError::OutOfMemory => *control_flow = ControlFlow::Exit,
+                                        // All other errors
+                                        e => eprintln!("{:?}", e),
+                                    }
+                                },
+                                e => {
+                                    eprintln!("{:?}", e);
+                                }
+                            }
+                        },
+                    }
+                }
+                Event::MainEventsCleared => {
+                    // RedrawRequested will only trigger once, unless we manually
+                    // request it.
+                    state.window().request_redraw();
+                }
+                _ => {}
+            }
+        })
     }
 }
 
 //TODO make a application builder
-pub async fn run(
-    config_fn: GetConfigFn,
-    init_fn: InitFn,
-    tick_fn: TickFn,
-    render_fn: RenderFn,
-    resize_fn: Option<ResizeFn>,
-) {
-    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
-    let event_loop = EventLoop::new();
-    let window = WindowBuilder::new().build(&event_loop).unwrap();
-    let mut last_render_time = std::time::Instant::now();
+// pub async fn run(
+//     config_fn: GetConfigFn,
+//     init_fn: InitFn,
+//     tick_fn: TickFn,
+//     render_fn: RenderFn,
+//     resize_fn: Option<ResizeFn>,
+// ) {
+//     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
+//     let event_loop = EventLoop::new();
+//     let window = WindowBuilder::new().build(&event_loop).unwrap();
+//     let mut last_render_time = std::time::Instant::now();
 
-    let mut state = BaseState::new(window, config_fn, init_fn, tick_fn, render_fn, resize_fn).await;
-    event_loop.run(move |event, _, control_flow| {
-        match event {
-            Event::DeviceEvent {
-                event: DeviceEvent::MouseMotion{ delta, },
-                .. // We're not using device_id currently
-            } => if state.mouse_pressed {
-                //TODO deal all events in one place
-                state.camera_controller.process_mouse(delta.0, delta.1)
-            }
-            Event::WindowEvent {
-                ref event,
-                window_id,
-            } if window_id == state.window().id() => {
-                if !state.input(event) {
-                    match event {
-                        WindowEvent::CloseRequested
-                        | WindowEvent::KeyboardInput {
-                            input:
-                                KeyboardInput {
-                                    state: ElementState::Pressed,
-                                    virtual_keycode: Some(VirtualKeyCode::Escape),
-                                    ..
-                                },
-                            ..
-                        } => *control_flow = ControlFlow::Exit,
-                        WindowEvent::Resized(physical_size) => {
-                            state.resize(*physical_size);
-                        }
-                        WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                            state.resize(**new_inner_size);
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            Event::RedrawRequested(window_id) if window_id == state.window().id() => {
-                let now = std::time::Instant::now();
-                let dt = now - last_render_time;
-                last_render_time = now;
-                state.tick(dt).unwrap();
-                match state.render(dt) {
-                    Ok(_) => {},
-                    Err(err) => {
-                        match err {
-                            Error::SurfaceErr { source } => {
-                                match source {
-                                    // Reconfigure the surface if lost
-                                    wgpu::SurfaceError::Lost => state.resize(state.size),
-                                    // The system is out of memory, we should probably quit
-                                    wgpu::SurfaceError::OutOfMemory => *control_flow = ControlFlow::Exit,
-                                    // All other errors
-                                    e => eprintln!("{:?}", e),
-                                }
-                            },
-                            e => {
-                                eprintln!("{:?}", e);
-                            }
-                        }
-                    },
-                }
-            }
-            Event::MainEventsCleared => {
-                // RedrawRequested will only trigger once, unless we manually
-                // request it.
-                state.window().request_redraw();
-            }
-            _ => {}
-        }
-    });
-}
+//     let mut state = BaseState::new(window, config_fn, init_fn, tick_fn, render_fn, resize_fn).await;
+//     event_loop.run(move |event, _, control_flow| {
+//         match event {
+//             Event::DeviceEvent {
+//                 event: DeviceEvent::MouseMotion{ delta, },
+//                 .. // We're not using device_id currently
+//             } => if state.mouse_pressed {
+//                 //TODO deal all events in one place
+//                 state.camera_controller.process_mouse(delta.0, delta.1)
+//             }
+//             Event::WindowEvent {
+//                 ref event,
+//                 window_id,
+//             } if window_id == state.window().id() => {
+//                 if !state.input(event) {
+//                     match event {
+//                         WindowEvent::CloseRequested
+//                         | WindowEvent::KeyboardInput {
+//                             input:
+//                                 KeyboardInput {
+//                                     state: ElementState::Pressed,
+//                                     virtual_keycode: Some(VirtualKeyCode::Escape),
+//                                     ..
+//                                 },
+//                             ..
+//                         } => *control_flow = ControlFlow::Exit,
+//                         WindowEvent::Resized(physical_size) => {
+//                             state.resize(*physical_size);
+//                         }
+//                         WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+//                             state.resize(**new_inner_size);
+//                         }
+//                         _ => {}
+//                     }
+//                 }
+//             }
+//             Event::RedrawRequested(window_id) if window_id == state.window().id() => {
+//                 let now = std::time::Instant::now();
+//                 let dt = now - last_render_time;
+//                 last_render_time = now;
+//                 state.tick(dt).unwrap();
+//                 match state.render(dt) {
+//                     Ok(_) => {},
+//                     Err(err) => {
+//                         match err {
+//                             Error::SurfaceErr { source } => {
+//                                 match source {
+//                                     // Reconfigure the surface if lost
+//                                     wgpu::SurfaceError::Lost => state.resize(state.size),
+//                                     // The system is out of memory, we should probably quit
+//                                     wgpu::SurfaceError::OutOfMemory => *control_flow = ControlFlow::Exit,
+//                                     // All other errors
+//                                     e => eprintln!("{:?}", e),
+//                                 }
+//                             },
+//                             e => {
+//                                 eprintln!("{:?}", e);
+//                             }
+//                         }
+//                     },
+//                 }
+//             }
+//             Event::MainEventsCleared => {
+//                 // RedrawRequested will only trigger once, unless we manually
+//                 // request it.
+//                 state.window().request_redraw();
+//             }
+//             _ => {}
+//         }
+//     });
+// }

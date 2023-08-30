@@ -6,5 +6,4 @@ resolver = "2"
 
 [dependencies]
 gf_base = { path = "../base"}
-pollster = "0.3.0"
 bytemuck = {version = "1.13.1",  features = [ "derive" ]}

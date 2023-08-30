@@ -1,16 +1,13 @@
+use std::mem::size_of;
 use std::num::NonZeroU32;
-use std::ops::Range;
 use std::time::Duration;
-use std::{fmt::format, mem::size_of};
 
-use gf_base::asset::gltf::check_and_cast;
 use gf_base::{
-    asset::gltf::{load_gltf, LoadOption, MaterialKey, PerNodeBuffer},
+    asset::gltf::{load_gltf, LoadOption, MaterialKey},
     downcast_mut,
     glam::{Mat3, Mat4},
     image::GenericImageView,
-    run,
-    snafu::{ErrorCompat, OptionExt, ResultExt},
+    snafu::{OptionExt, ResultExt},
     texture,
     wgpu::{
         self,
@@ -18,7 +15,8 @@ use gf_base::{
         DepthStencilState, Operations, RenderPassDepthStencilAttachment, TextureDescriptor,
         VertexFormat::*,
     },
-    BaseState, Error, GLTFErrSnafu, ImageLoadErrSnafu, NoneErrSnafu, StateDynObj, SurfaceErrSnafu,
+    App, BaseState, Error, GLTFErrSnafu, ImageLoadErrSnafu, NoneErrSnafu, StateDynObj,
+    SurfaceErrSnafu,
 };
 
 struct State {
@@ -440,13 +438,19 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
 
     let (scene_view, scene_buffer) =
         load_gltf(cube_path, Default::default()).context(GLTFErrSnafu)?;
-    let cube_pos = &scene_buffer.positions[scene_view.nodes.get(&0).context(NoneErrSnafu)?.meshes[0].positions.clone()];
+    let cube_pos = &scene_buffer.positions[scene_view.nodes.get(&0).context(NoneErrSnafu)?.meshes
+        [0]
+    .positions
+    .clone()];
     let cube_buffer = device.create_buffer_init(&BufferInitDescriptor {
         label: Some("light debug cube pos"),
         contents: cube_pos,
         usage: wgpu::BufferUsages::VERTEX,
     });
-    let cube_ind = &scene_buffer.index[scene_view.nodes.get(&0).context(NoneErrSnafu)?.meshes[0].index.indices.clone()];
+    let cube_ind = &scene_buffer.index[scene_view.nodes.get(&0).context(NoneErrSnafu)?.meshes[0]
+        .index
+        .indices
+        .clone()];
     let cube_ind_buffer = device.create_buffer_init(&BufferInitDescriptor {
         label: Some("light debug cube index"),
         contents: cube_ind,
@@ -531,16 +535,14 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
         light_pipeline,
         cube_buf: cube_buffer,
         cube_ind: cube_ind_buffer,
-        cube_ind_count: scene_view.nodes.get(&0).context(NoneErrSnafu)?.meshes[0].index.count,
+        cube_ind_count: scene_view.nodes.get(&0).context(NoneErrSnafu)?.meshes[0]
+            .index
+            .count,
         tangent: tangent_buf,
         bi_tangent: bi_tangent_buf,
     });
     base_state.extra_state = Some(state);
 
-    Ok(())
-}
-
-fn tick(_state: &mut BaseState, _dt: Duration) -> Result<(), Error> {
     Ok(())
 }
 
@@ -622,21 +624,18 @@ fn render(base_state: &mut BaseState, _dt: Duration) -> Result<(), Error> {
 }
 
 fn main() {
-    pollster::block_on(run(
-        || {
-            (
-                wgpu::Backends::all(),
-                wgpu::Features::MULTI_DRAW_INDIRECT
-                    | wgpu::Features::INDIRECT_FIRST_INSTANCE
-                    | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING
-                    | wgpu::Features::TEXTURE_BINDING_ARRAY,
-            )
-        },
-        init,
-        tick,
-        render,
-        None,
-    ))
+    let mut app = App::builder()
+        .config((
+            wgpu::Backends::VULKAN | wgpu::Backends::METAL,
+            wgpu::Features::MULTI_DRAW_INDIRECT
+                | wgpu::Features::INDIRECT_FIRST_INSTANCE
+                | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING
+                | wgpu::Features::TEXTURE_BINDING_ARRAY,
+        ))
+        .init_fn(init)
+        .render_fn(render)
+        .build();
+    app.run();
 }
 
 #[test]

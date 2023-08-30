@@ -12,5 +12,6 @@ edition = "2021"
 
 [patch.crates-io]
 # naga ={ path = "/path/to/naga"}
+## TODO waiting upstream merge
 wgpu = {git = "https://github.com/wicast/wgpu.git", branch = "shader_debug_flag"}
 # wgpu-hal ={ path = "path/to/wgpu/wgpu-hal" }
