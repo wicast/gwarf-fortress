@@ -1,10 +1,10 @@
 ### Strike the Earth rustcaeens!
 
-This is a graphic testing field like [SaschaWillems/Vulkan](https://github.com/SaschaWillems/Vulkan), but powered with wgpu.
+This is a graphic test field like [SaschaWillems/Vulkan](https://github.com/SaschaWillems/Vulkan), but powered with wgpu.
 
 There is a gltf loader based on [goth-gltf](https://github.com/expenses/goth-gltf) (I forked it with some tweaks), it can be a standalone crate in the future.
 
-**Please note that this project is still in early development, some code is rather rough.**
+**Please note that this project is still in early development, some codes are rather rough.**
 
 ### Showcases:
 
