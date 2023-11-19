@@ -11,7 +11,7 @@ use image::ImageError;
 use snafu::{Backtrace, Snafu};
 use texture::Texture;
 use typed_builder::TypedBuilder;
-use wgpu::{util::DeviceExt, Backend, Backends};
+use wgpu::{util::DeviceExt, Backend, Backends, InstanceFlags};
 use winit::{
     event::{
         DeviceEvent, ElementState, Event, KeyboardInput, MouseButton, VirtualKeyCode, WindowEvent,
@@ -87,6 +87,8 @@ impl BaseState {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends,
             dx12_shader_compiler: Default::default(),
+            flags: InstanceFlags::debugging(),
+            gles_minor_version: Default::default(),
         });
 
         // # Safety

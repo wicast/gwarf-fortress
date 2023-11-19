@@ -389,8 +389,7 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
 
     //Gbuffer pipeline
 
-    let gbuffer_shader =
-        device.create_shader_module(wgpu::include_wgsl!("gbuffer_shader.wgsl", true));
+    let gbuffer_shader = device.create_shader_module(wgpu::include_wgsl!("gbuffer_shader.wgsl"));
 
     let gbuffer_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("GBuffer Pipeline Layout"),
@@ -498,8 +497,7 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
         push_constant_ranges: &[],
     });
 
-    let deferred_shader =
-        device.create_shader_module(wgpu::include_wgsl!("deferred_shader.wgsl", true));
+    let deferred_shader = device.create_shader_module(wgpu::include_wgsl!("deferred_shader.wgsl"));
 
     let deferred_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("Deferred Pipeline"),
@@ -592,8 +590,7 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
         ],
         push_constant_ranges: &[],
     });
-    let light_debug_shader =
-        device.create_shader_module(wgpu::include_wgsl!("light_debug.wgsl", true));
+    let light_debug_shader = device.create_shader_module(wgpu::include_wgsl!("light_debug.wgsl"));
 
     let emissive_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("emissive Pipeline"),
@@ -867,7 +864,7 @@ fn render(base_state: &mut BaseState, _dt: Duration) -> Result<(), Error> {
                             b: 0.0,
                             a: 1.0,
                         }),
-                        store: true,
+                        store: wgpu::StoreOp::Store,
                     },
                 }),
                 Some(wgpu::RenderPassColorAttachment {
@@ -880,7 +877,7 @@ fn render(base_state: &mut BaseState, _dt: Duration) -> Result<(), Error> {
                             b: 0.0,
                             a: 1.0,
                         }),
-                        store: true,
+                        store: wgpu::StoreOp::Store,
                     },
                 }),
                 Some(wgpu::RenderPassColorAttachment {
@@ -893,7 +890,7 @@ fn render(base_state: &mut BaseState, _dt: Duration) -> Result<(), Error> {
                             b: 0.0,
                             a: 1.0,
                         }),
-                        store: true,
+                        store: wgpu::StoreOp::Store,
                     },
                 }),
             ],
@@ -901,7 +898,7 @@ fn render(base_state: &mut BaseState, _dt: Duration) -> Result<(), Error> {
                 view: &base_state.depth.view,
                 depth_ops: Some(Operations {
                     load: wgpu::LoadOp::Clear(1.0),
-                    store: true,
+                    store: wgpu::StoreOp::Store,
                 }),
                 stencil_ops: None,
             }),
@@ -942,7 +939,7 @@ fn render(base_state: &mut BaseState, _dt: Duration) -> Result<(), Error> {
                         b: 0.0,
                         a: 1.0,
                     }),
-                    store: true,
+                    store: wgpu::StoreOp::Store,
                 },
             })],
             depth_stencil_attachment: None,
@@ -970,14 +967,14 @@ fn render(base_state: &mut BaseState, _dt: Duration) -> Result<(), Error> {
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Load,
-                    store: true,
+                    store: wgpu::StoreOp::Store,
                 },
             })],
             depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
                 view: &base_state.depth.view,
                 depth_ops: Some(Operations {
                     load: wgpu::LoadOp::Load,
-                    store: false,
+                    store: wgpu::StoreOp::Discard,
                 }),
                 stencil_ops: None,
             }),

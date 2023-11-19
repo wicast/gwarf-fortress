@@ -468,7 +468,6 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("Light Shader"),
         source: wgpu::ShaderSource::Wgsl(include_str!("light.wgsl").into()),
-        debug: true,
     });
 
     let light_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -574,14 +573,14 @@ fn render(base_state: &mut BaseState, _dt: Duration) -> Result<(), Error> {
                         b: 0.0,
                         a: 1.0,
                     }),
-                    store: true,
+                    store: wgpu::StoreOp::Store,
                 },
             })],
             depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
                 view: &base_state.depth.view,
                 depth_ops: Some(Operations {
                     load: wgpu::LoadOp::Clear(1.0),
-                    store: false,
+                    store: wgpu::StoreOp::Discard,
                 }),
                 stencil_ops: None,
             }),

@@ -158,7 +158,7 @@ fn render(base_state: &mut BaseState, dt: Duration) -> Result<(), Error> {
                         b: 1.0,
                         a: 1.0,
                     }),
-                    store: true,
+                    store: wgpu::StoreOp::Store,
                 },
             })],
             depth_stencil_attachment: None,
