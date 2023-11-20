@@ -11,7 +11,8 @@ log = "0.4"
 wgpu = "0.18.0"
 as-any = "0.3.0"
 bytemuck = { version = "1.13.1", features = ["derive"] }
-goth-gltf = {git = "https://github.com/wicast/goth-gltf.git", branch = "sampler_modify", features = ["wgpu_types"]}
+# goth-gltf = "0.1.1"
+goth-gltf = {git = "https://github.com/expenses/goth-gltf.git", features = ["names"]}
 snafu = { version = "0.7.4", features = ["backtraces"] }
 base64 = "0.21.0"
 glam = { version = "0.24", features = ["bytemuck"] }

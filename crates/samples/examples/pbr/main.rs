@@ -3,7 +3,7 @@ use std::num::NonZeroU32;
 use std::time::Duration;
 
 use gf_base::{
-    asset::gltf::{load_gltf, LoadOption, MaterialKey},
+    asset::gltf::{load_gltf, LoadOption, MaterialKey, self, SInto},
     downcast_mut,
     glam::{Mat3, Mat4},
     image::GenericImageView,
@@ -11,7 +11,7 @@ use gf_base::{
     texture::{self},
     wgpu::{
         self,
-        util::{BufferInitDescriptor, DeviceExt, DrawIndexedIndirect},
+        util::{BufferInitDescriptor, DeviceExt, DrawIndexedIndirect, RenderEncoder},
         BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
         BindGroupLayoutEntry, DepthStencilState, Operations, PipelineLayoutDescriptor,
         RenderPassDepthStencilAttachment, ShaderStages, TextureDescriptor,
@@ -182,7 +182,7 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
                 instance_count: 1,
                 base_index: (mesh.index.indices.start / mesh.index.type_size) as u32,
                 vertex_offset: (mesh.positions.start / mesh.vertex_type_size) as i32,
-                base_instance: obj_count,
+                base_instance: 0,
             });
             let gltf_mat = &scene_view.materials[mesh.mat.context(NoneErrSnafu)?];
             let base_color = gltf_mat
@@ -248,7 +248,7 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
 
     let mut samplers = vec![];
     for sampler in &scene_view.samplers {
-        let desc: wgpu::SamplerDescriptor<'_> = sampler.clone().into();
+        let desc: wgpu::SamplerDescriptor<'_> = sampler.t_into();
         let wgpu_sampler = device.create_sampler(&desc);
         samplers.push(wgpu_sampler);
     }

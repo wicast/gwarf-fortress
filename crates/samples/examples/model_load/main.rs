@@ -3,7 +3,7 @@ use std::num::NonZeroU32;
 use std::time::Duration;
 
 use gf_base::{
-    asset::gltf::{load_gltf, LoadOption, MaterialKey},
+    asset::gltf::{load_gltf, LoadOption, MaterialKey, SInto},
     downcast_mut,
     glam::{Mat3, Mat4},
     image::GenericImageView,
@@ -211,7 +211,7 @@ fn init(base_state: &mut BaseState) -> Result<(), Error> {
 
     let mut samplers = vec![];
     for sampler in &scene_view.samplers {
-        let desc: wgpu::SamplerDescriptor<'_> = sampler.clone().into();
+        let desc: wgpu::SamplerDescriptor<'_> = sampler.clone().t_into();
         let wgpu_sampler = device.create_sampler(&desc);
         samplers.push(wgpu_sampler);
     }

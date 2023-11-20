@@ -4,11 +4,25 @@ use std::{collections::BTreeMap, path::Path};
 use base64::{DecodeError, Engine};
 use glam::{Mat4, Quat, Vec3};
 use goth_gltf::{
-    default_extensions, ComponentType, NormalTextureInfo, OcclusionTextureInfo, Sampler,
+    default_extensions, ComponentType, Gltf, NodeTransform, NormalTextureInfo,
+    OcclusionTextureInfo, PrimitiveMode, Sampler, TextureInfo,
 };
-use goth_gltf::{Gltf, NodeTransform, PrimitiveMode, TextureInfo};
 use snafu::{Backtrace, OptionExt, ResultExt, Snafu};
 use wgpu::TextureFormat;
+
+pub trait SInto<T>: Sized {
+    fn t_into(self) -> T;
+}
+
+pub trait SFrom<T>: Sized {
+    fn f_from(value: T) -> Self;
+}
+
+impl<F, T: SFrom<F>> SInto<T> for F {
+    fn t_into(self) -> T {
+        T::f_from(self)
+    }
+}
 
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -126,6 +140,59 @@ impl TryFrom<ComponentType> for IndexType {
             ComponentType::UnsignedShort => Ok(Self::U16),
             ComponentType::UnsignedInt => Ok(Self::U32),
             _ => Err(Error::UnsupportedIndexType),
+        }
+    }
+}
+
+impl<'a> SFrom<&goth_gltf::Sampler> for wgpu::SamplerDescriptor<'a> {
+    fn f_from(val: &goth_gltf::Sampler) -> Self {
+        Self {
+            label: None,
+            address_mode_u: (&val.wrap_s).t_into(),
+            address_mode_v: (&val.wrap_t).t_into(),
+            address_mode_w: wgpu::AddressMode::default(),
+            mag_filter: (val
+                .mag_filter
+                .as_ref()
+                .unwrap_or(&goth_gltf::FilterMode::Linear))
+            .t_into(),
+            min_filter: val
+                .min_filter
+                .as_ref()
+                .map(|i| &i.mode)
+                .unwrap_or(&goth_gltf::FilterMode::Linear)
+                .t_into(),
+            mipmap_filter: (val
+                .min_filter
+                .as_ref()
+                .map(|i| i.mipmap.as_ref().unwrap_or(&goth_gltf::FilterMode::Linear))
+                .unwrap_or(&goth_gltf::FilterMode::Linear))
+            .t_into(),
+            // lod_min_clamp: todo!(),
+            // lod_max_clamp: todo!(),
+            // compare: todo!(),
+            // anisotropy_clamp: todo!(),
+            // border_color: todo!(),
+            ..Default::default()
+        }
+    }
+}
+
+impl SFrom<&goth_gltf::SamplerWrap> for wgpu::AddressMode {
+    fn f_from(value: &goth_gltf::SamplerWrap) -> Self {
+        match value {
+            goth_gltf::SamplerWrap::ClampToEdge => Self::ClampToEdge,
+            goth_gltf::SamplerWrap::MirroredRepeat => Self::MirrorRepeat,
+            goth_gltf::SamplerWrap::Repeat => Self::Repeat,
+        }
+    }
+}
+
+impl SFrom<&goth_gltf::FilterMode> for wgpu::FilterMode {
+    fn f_from(value: &goth_gltf::FilterMode) -> Self {
+        match value {
+            goth_gltf::FilterMode::Nearest => Self::Nearest,
+            goth_gltf::FilterMode::Linear => Self::Linear,
         }
     }
 }
@@ -407,8 +474,8 @@ pub fn load_gltf<P: AsRef<Path>>(
         scene_view_out.materials.push(mat_out)
     }
 
-    for sampler in &gltf_info.samplers {
-        scene_view_out.samplers.push(sampler.clone());
+    for sampler in gltf_info.samplers {
+        scene_view_out.samplers.push(sampler);
     }
 
     if option.gen_tbn {
